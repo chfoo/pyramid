@@ -392,7 +392,7 @@ class ChatInput extends Component {
 					onKeyUp={this.onKeyUp}
 					tabIndex={1}
 					placeholder="Send a message"
-					autoComplete="off"
+					xxx-autoComplete="off"
 					/>
 				<input type="submit" />
 			</form>
