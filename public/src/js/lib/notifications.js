@@ -11,6 +11,10 @@ function sendNotification(title, body) {
 
 	else if (Notification.permission === "granted") {
 		var n = new Notification(title, { body, icon });
+		if (localStorage.chatot) {
+			var audio = new Audio("/img/441 - Chatot.opus");
+			audio.play();
+		}
 		closeNotificationAfterTimeout(n);
 	}
 
