@@ -48,7 +48,7 @@ module.exports = function(db) {
 	const getHighlightStringsForMessage = function(message, channel, meUsername) {
 		var highlightStrings = [];
 
-		const meRegex = new RegExp("\\b" + meUsername + "\\b", "i");
+		const meRegex = new RegExp("\\b" + meUsername + "(?: |$)", "i");
 		if (meRegex.test(message)) {
 			highlightStrings.push(meUsername);
 		}
