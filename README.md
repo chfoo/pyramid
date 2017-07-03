@@ -1,7 +1,7 @@
 Pyramid
 =======
 
-**Pyramid 1.0 beta 2 is out! Yay!**
+**NEW! Pyramid 1.0 beta 3 is out! Woohoo!**
 
 ![pyramid-screenshot-resized](https://cloud.githubusercontent.com/assets/80858/24841349/cd66d46e-1d82-11e7-9108-b7e4295413e0.png)
 
@@ -35,6 +35,18 @@ If you want an installation that's always up to date with the newest development
 Then, when you want to update your version, simply run `git pull` in a terminal from the Pyramid folder. If it tells you that there are changes in the `package.json` file, then run `npm install --production` again, to make sure the prerequisites are up to date.
 
 Warning: Development builds can obviously fail more often than the master build.
+
+### Installing on Windows
+
+Node.js projects often require a little more effort to be installed on Windows, and this is also the case with this project. Pyramid uses a few dependencies that require the compiling of C++ code, so in order to get the project up and running, you will have to run the following command in a PowerShell opened as an admin:
+
+```
+npm install --global --production windows-build-tools
+```
+
+This command [installs build tools](https://www.npmjs.com/package/windows-build-tools) required to set up Pyramid on Windows.
+
+Other than the above command in particular, I would generally recommend using something like [Git Bash](https://git-scm.org/) to run your commands in on Windows.
 
 ## License
 [MIT License](LICENSE)
