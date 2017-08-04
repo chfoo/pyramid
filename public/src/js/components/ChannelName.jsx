@@ -2,8 +2,13 @@ import React, { Component } from "react";
 import PropTypes from "prop-types";
 import { connect } from "react-redux";
 
-import { getTwitchChannelDisplayNameData } from "../lib/displayNames";
+import UserLink from "./UserLink.jsx";
 import { parseChannelUri } from "../lib/channelNames";
+import {
+	getConversationData,
+	getConversationPrefix,
+	getTwitchChannelDisplayNameData
+} from "../lib/displayNames";
 
 class ChannelName extends Component {
 	render() {
@@ -13,8 +18,12 @@ class ChannelName extends Component {
 			enableTwitchChannelDisplayNames,
 			enableTwitchUserDisplayNames,
 			multiServerChannels,
+			noConversationName = false,
+			noUserLink = false,
+			prefixType,
 			serverData
 		} = this.props;
+
 		var { displayServer = false, server, strong } = this.props;
 
 		if (!channel) {
@@ -34,9 +43,47 @@ class ChannelName extends Component {
 		let title = undefined;
 		let suffix = null;
 
+		// If displaying a private conversation
+
+		let usersEnabled = serverData &&
+			serverData.isTwitch &&
+			enableTwitchUserDisplayNames;
+
+		let conversationData = getConversationData(uriData, usersEnabled);
+
+		if (conversationData) {
+			let { server, userDisplayName, username } = conversationData;
+
+			if (noConversationName) {
+				displayedName = "conversation";
+			}
+
+			else {
+				let prefix = getConversationPrefix(prefixType);
+
+				let link = <UserLink
+					username={username}
+					displayName={userDisplayName}
+					enableTwitchUserDisplayNames={usersEnabled}
+					noLink={noUserLink}
+					serverName={null} // No conversation links allowed
+					key="participant" />;
+
+				displayedName = [prefix, link];
+				suffix = [
+					" ",
+					<em
+						className="server-context"
+						key="secondary">
+						on { server }
+					</em>
+				];
+			}
+		}
+
 		// If displaying Twitch display names
 
-		if (serverData && serverData.isTwitch) {
+		if (!conversationData && serverData && serverData.isTwitch) {
 			let displayNameData = getTwitchChannelDisplayNameData(
 				channelName,
 				displayName,
@@ -49,7 +96,7 @@ class ChannelName extends Component {
 			title = tooltip;
 
 			if (secondary) {
-				suffix = <em key="secondary">({ secondary })</em>;
+				suffix = [" ", <em key="secondary">({ secondary })</em>];
 			}
 		}
 
@@ -81,6 +128,9 @@ ChannelName.propTypes = {
 	enableTwitchChannelDisplayNames: PropTypes.bool,
 	enableTwitchUserDisplayNames: PropTypes.number,
 	multiServerChannels: PropTypes.array,
+	noConversationName: PropTypes.bool,
+	noUserLink: PropTypes.bool,
+	prefixType: PropTypes.number,
 	server: PropTypes.string,
 	serverData: PropTypes.object,
 	strong: PropTypes.bool

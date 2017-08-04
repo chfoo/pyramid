@@ -1,45 +1,18 @@
-const _ = require("lodash");
-
-const emoteParsing = require("./emoteParsing");
 const twitchApi = require("./twitchApi");
 const util = require("./util");
 
-const USER_STATE_MESSAGE_FIELDS = [
-	"badges", "color", "display-name", "mod", "subscriber", "turbo",
-	"user-id", "user-type"
-];
-
 var emoticonImages = {};
-var roomStates = {};
-var userStates = {};
-var globalUserStates = {};
+var cheerData = {};
 
-const getUserState = function(channel) {
-	return userStates[channel];
-};
-
-const getRoomState = function(channel) {
-	return roomStates[channel];
-};
-
-const getGlobalUserState = function(serverName) {
-	return globalUserStates[serverName];
-};
-
-const setUserState = function(channel, state) {
-	userStates[channel] = state;
-};
-
-const setRoomState = function(channel, state) {
-	roomStates[channel] = state;
-};
-
-const setGlobalUserState = function(serverName, state) {
-	globalUserStates[serverName] = state;
-};
+const ROOM_ID_GLOBAL = 0;
 
 const getEmoticonImages = function(emoteSetsString) {
-	return emoticonImages[emoteSetsString];
+	return emoticonImages[emoteSetsString] || [];
+};
+
+const getCheerData = function(roomId) {
+	// pass ROOM_ID_GLOBAL for global cheer data
+	return cheerData[roomId] || [];
 };
 
 const requestEmoticonImages = function(emotesets) {
@@ -57,8 +30,8 @@ const requestEmoticonImages = function(emotesets) {
 
 			else {
 				util.warn(
-					"Error occurred trying to request emoticon images from the Twitch API\n",
-					error
+					"Error occurred trying to request emoticon images from the Twitch API: " +
+					(error && error.message)
 				);
 			}
 		})
@@ -83,35 +56,98 @@ const reloadEmoticonImages = function() {
 	});
 };
 
-const populateLocallyPostedTags = function(tags, serverName, channel, message) {
-	if (tags) {
-		_.assign(
-			tags,
-			_.pick(globalUserStates[serverName], USER_STATE_MESSAGE_FIELDS),
-			_.pick(userStates[channel], USER_STATE_MESSAGE_FIELDS),
-			{
-				emotes: emoteParsing.generateEmoticonIndices(
-						message,
-						emoticonImages[
-							userStates[channel]["emote-sets"] ||
-							globalUserStates[serverName]["emote-sets"]
-						]
-					)
+const requestGlobalBadgeData = function(callback) {
+	util.log("Requesting global channel badge data");
+	twitchApi.badgeGetRequest(
+		"global/display",
+		util.acceptRequest((error, data) => {
+			if (!error) {
+				callback(data);
 			}
-		);
-	}
+
+			else {
+				util.warn(
+					"Error occurred trying to request global badge data from the Twitch API: " +
+					(error && error.message)
+				);
+			}
+		})
+	);
+};
+
+const requestChannelBadgeData = function(roomId, callback) {
+	util.log(`Requesting channel badge data for ${roomId}`);
+	twitchApi.badgeGetRequest(
+		`channels/${roomId}/display`,
+		util.acceptRequest((error, data) => {
+			if (!error) {
+				callback(data);
+			}
+
+			else {
+				util.warn(
+					"Error occurred trying to request channel badge data from the Twitch API: " +
+					(error && error.message)
+				);
+			}
+		})
+	);
+};
+
+const requestGlobalCheerData = function() {
+	util.log("Requesting global cheer data");
+	twitchApi.krakenGetRequest(
+		"bits/actions",
+		{},
+		util.acceptRequest((error, data) => {
+			if (!error) {
+				cheerData[ROOM_ID_GLOBAL] =
+					twitchApi.flattenCheerData(data);
+
+				util.log(`There are now ${cheerData[ROOM_ID_GLOBAL].length} cheer types in the global cheer data`);
+			}
+
+			else {
+				util.warn(
+					"Error occurred trying to request cheer data from the Twitch API: " +
+					(error && error.message)
+				);
+			}
+		})
+	);
+};
+
+const requestChannelCheerData = function(roomId) {
+	util.log(`Requesting channel cheer data for ${roomId}`);
+	twitchApi.krakenGetRequest(
+		"bits/actions",
+		{ channel_id: roomId },
+		util.acceptRequest((error, data) => {
+			if (!error) {
+				cheerData[roomId] =
+					twitchApi.flattenCheerData(data, cheerData[ROOM_ID_GLOBAL]);
+
+				util.log(`There are now ${cheerData[roomId].length} cheer types in ${roomId}`);
+			}
+
+			else {
+				util.warn(
+					"Error occurred trying to request cheer data from the Twitch API: " +
+					(error && error.message)
+				);
+			}
+		})
+	);
 };
 
 module.exports = {
 	getEmoticonImages,
-	getGlobalUserState,
-	getRoomState,
-	getUserState,
-	populateLocallyPostedTags,
+	getCheerData,
 	reloadEmoticonImages,
+	requestChannelBadgeData,
+	requestChannelCheerData,
 	requestEmoticonImages,
 	requestEmoticonImagesIfNeeded,
-	setGlobalUserState,
-	setRoomState,
-	setUserState
+	requestGlobalBadgeData,
+	requestGlobalCheerData
 };

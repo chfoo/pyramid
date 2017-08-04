@@ -11,7 +11,9 @@ const settings = {
 			readableName: "Web port",
 			type: "number",
 			description: "The port number the web server should listen to",
-			notice: "Requires server restart"
+			notice: "Requires server restart",
+			min: 1,
+			max: 65535
 		},
 		{
 			name: "webPassword",
@@ -34,10 +36,23 @@ const settings = {
 
 	"Storage": [
 		{
-			name: "logLinesDb",
-			readableName: "Log lines in the database",
-			type: "bool",
-			description: "Log all chat lines in the database; saves meta data but takes up disk space"
+			name: "retainDbValue",
+			readableName: "How much to retain in the database (value)",
+			type: "number",
+			description: "Chat lines are kept in a local database for a period of time. You can choose how many or for how long these are kept. The unit for this number is either lines or days, depending on below. (If you type zero, all lines are kept and the database will slowly expand to unlimited size.)",
+			notice: "The unit of this value is defined below!",
+			min: 0
+		},
+		{
+			name: "retainDbType",
+			readableName: "How much to retain in the database (unit)",
+			type: "enum",
+			description: "Choosing to define how many lines are kept at any time in the database makes the file size of the database more predictable, but it makes the amount of time you can look back less predictable. Choosing days as the unit does the opposite.",
+			notice: "The value for this unit is defined above!",
+			valueNames: [
+				"Lines",
+				"Days"
+			]
 		},
 		{
 			name: "logLinesFile",
@@ -97,17 +112,32 @@ const settings = {
 			notice: "Doesn't affect your joined status"
 		},
 		{
-			name: "collapseJoinParts",
-			readableName: "Collapse join/part events",
+			name: "showActivityFlashes",
+			readableName: "Show activity flashes in sidebar",
 			type: "bool",
-			description: "If someone joins and immediately leaves, don't display anything"
+			description: "Whenever there's activity in a channel, show a quick flash"
+		},
+		{
+			name: "showUserEvents",
+			readableName: "Show user events",
+			type: "enum",
+			description: "How to handle join and part events",
+			notice: "Collapse presence means: If someone joins and immediately leaves, don't display anything for them",
+			valueNames: [
+				"Off",
+				"Collapse presence (default)",
+				"Collapse events into one line",
+				"Show all"
+			]
 		},
 		{
 			name: "cacheLines",
 			readableName: "Live scrollback length",
 			type: "number",
 			description: "Number of lines you can see in a live chat view",
-			notice: "Must be between 20 and 500. Default value is 150"
+			notice: "Must be between 20 and 500. Default value is 150",
+			min: 20,
+			max: 500
 		}
 	],
 

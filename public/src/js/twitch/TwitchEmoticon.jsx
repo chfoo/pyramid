@@ -1,9 +1,9 @@
 import React, { PureComponent } from "react";
 import PropTypes from "prop-types";
 import Tipsy from "react-tipsy";
+import forOwn from "lodash/forOwn";
 
 import { refElSetter } from "../lib/refEls";
-import { stickToTheBottom } from "../lib/visualBehavior";
 
 const EMOTE_IMG_URL_ROOT = "//static-cdn.jtvnw.net/emoticons/v1/";
 const EMOTE_FFZ_IMG_URL_ROOT = "//cdn.frankerfacez.com/emoticon/";
@@ -28,14 +28,35 @@ const EMOTE_REPLACEMENTS = {
 };
 
 const getEmoticonUrlsets = function(emote) {
-	const output = {};
-	switch (emote.type) {
+	let { id, sizes, type, urlSet } = emote;
+	let output = {};
+
+	// Use directly given data if any
+	// Assumes data structure pixelRatio => imageUrl
+
+	if (urlSet) {
+		output.src = urlSet[1];
+		output.srcSet = [];
+
+		forOwn(urlSet, (url, ratio) => {
+			// Only allow whole numbers
+			if (ratio % 1 === 0) {
+				output.srcSet.push(`${url} ${ratio}x`);
+			}
+		});
+
+		return output;
+	}
+
+	// Default behaviour
+
+	switch (type) {
 		case "ffz":
-			output.src = EMOTE_FFZ_IMG_URL_ROOT + emote.id + "/1";
-			if (emote.sizes && emote.sizes.length) {
-				output.srcSet = emote.sizes.map((size) => {
+			output.src = EMOTE_FFZ_IMG_URL_ROOT + id + "/1";
+			if (sizes && sizes.length) {
+				output.srcSet = sizes.map((size) => {
 					return EMOTE_FFZ_IMG_URL_ROOT +
-						emote.id + "/" + size + " " + size + "x";
+						id + "/" + size + " " + size + "x";
 				});
 			}
 			else {
@@ -43,26 +64,26 @@ const getEmoticonUrlsets = function(emote) {
 			}
 			break;
 		case "bttv":
-			output.src = EMOTE_BTTV_IMG_URL_ROOT + emote.id + "/1x";
+			output.src = EMOTE_BTTV_IMG_URL_ROOT + id + "/1x";
 			output.srcSet = [
-				EMOTE_BTTV_IMG_URL_ROOT + emote.id + "/1x 1x",
-				EMOTE_BTTV_IMG_URL_ROOT + emote.id + "/2x 2x",
-				EMOTE_BTTV_IMG_URL_ROOT + emote.id + "/3x 4x"
+				EMOTE_BTTV_IMG_URL_ROOT + id + "/1x 1x",
+				EMOTE_BTTV_IMG_URL_ROOT + id + "/2x 2x",
+				EMOTE_BTTV_IMG_URL_ROOT + id + "/3x 4x"
 			];
 			break;
 		default:
 			// Assume normal
-			if (emote.id in EMOTE_REPLACEMENTS) {
-				output.src = EMOTE_REPLACEMENTS[emote.id];
+			if (id in EMOTE_REPLACEMENTS) {
+				output.src = EMOTE_REPLACEMENTS[id];
 				output.srcSet = [output.src + " 1x"];
 			}
 			else {
-				output.src = EMOTE_IMG_URL_ROOT + emote.id + "/1.0";
+				output.src = EMOTE_IMG_URL_ROOT + id + "/1.0";
 				output.srcSet = [
-					EMOTE_IMG_URL_ROOT + emote.id + "/1.0 1x",
-					EMOTE_IMG_URL_ROOT + emote.id + "/2.0 2x"
+					EMOTE_IMG_URL_ROOT + id + "/1.0 1x",
+					EMOTE_IMG_URL_ROOT + id + "/2.0 2x"
 				];
-				output.largeSrc = EMOTE_IMG_URL_ROOT + emote.id + "/4.0 4x";
+				output.largeSrc = EMOTE_IMG_URL_ROOT + id + "/4.0 4x";
 			}
 	}
 
@@ -81,7 +102,7 @@ class TwitchEmoticon extends PureComponent {
 	}
 
 	onLoad() {
-		const { onLoad = stickToTheBottom } = this.props;
+		const { onLoad } = this.props;
 		if (typeof onLoad === "function") {
 			onLoad();
 		}
@@ -96,15 +117,24 @@ class TwitchEmoticon extends PureComponent {
 	}
 
 	render() {
-		const { text } = this.props;
-		const url = getEmoticonUrlsets(this.props);
+		let {
+			height,
+			largeHeight,
+			largeWidth,
+			text,
+			type,
+			width
+		} = this.props;
 
-		var largeImg = null;
+		let url = getEmoticonUrlsets(this.props);
+		let largeImg = null;
 
 		if (url.largeSrc || url.srcSet.length > 1) {
 			let largestSrc = url.largeSrc || url.srcSet[url.srcSet.length-1];
 			largeImg = <img
 				src={largestSrc.replace(/\s.+$/, "")}
+				width={largeWidth}
+				height={largeHeight}
 				alt=""
 				onLoadStart={this.onTooltipLoad}
 				onLoadedMetadata={this.onTooltipLoad}
@@ -115,7 +145,8 @@ class TwitchEmoticon extends PureComponent {
 
 		let tooltipContent = [
 			largeImg,
-			<div key="name">{ text }</div>
+			<div key="name">{ text }</div>,
+			( type ? <div className="tooltip-secondary" key="type">{ type }</div> : null )
 		];
 
 		return (
@@ -123,6 +154,8 @@ class TwitchEmoticon extends PureComponent {
 				<img
 					src={url.src}
 					srcSet={url.srcSet.join(", ")}
+					width={width}
+					height={height}
 					alt={text}
 					onLoad={this.onLoad}
 					key="main"
@@ -133,10 +166,15 @@ class TwitchEmoticon extends PureComponent {
 }
 
 TwitchEmoticon.propTypes = {
+	height: PropTypes.number,
 	id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+	largeWidth: PropTypes.number,
+	largeHeight: PropTypes.number,
 	onLoad: PropTypes.func,
 	text: PropTypes.string,
-	type: PropTypes.string
+	type: PropTypes.string,
+	urlSet: PropTypes.object,
+	width: PropTypes.number
 };
 
 export default TwitchEmoticon;

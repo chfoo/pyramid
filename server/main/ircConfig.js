@@ -1,6 +1,7 @@
 const _ = require("lodash");
 const async = require("async");
 
+const { CHANNEL_TYPES } = require("../constants");
 const channelUtils = require("../util/channels");
 const passwordUtils = require("../util/passwords");
 const stringUtils = require("../util/strings");
@@ -51,17 +52,34 @@ module.exports = function(db, io) {
 					if (server.channels && server.channels.length) {
 						server.channels.forEach((channel) => {
 							if (channel && channel.channelId && channel.name) {
-								const channelUri = channelUtils.getChannelUri(
-									server.name, channel.name
-								);
+								var channelUri;
+
+								if (channel.channelType === CHANNEL_TYPES.PRIVATE) {
+									if (channel.name.indexOf(",") >= 0) {
+										// Old format; abort
+										return;
+									}
+
+									channelUri = channelUtils.getPrivateConversationUri(
+										server.name, channel.name
+									);
+								}
+
+								else {
+									channelUri = channelUtils.getChannelUri(
+										server.name, channel.name
+									);
+								}
+
 								channelIds[channelUri] = channel.channelId;
 							}
 						});
 					}
 				}
 			});
-			serverIdCache = serverIds;
-			channelIdCache = channelIds;
+
+			serverIdCache = _.assign(serverIdCache, serverIds);
+			channelIdCache = _.assign(channelIdCache, channelIds);
 		}
 	};
 
@@ -79,8 +97,19 @@ module.exports = function(db, io) {
 			if (channels) {
 				outConfig.channels = {};
 				channels.forEach((channel) => {
-					let { displayName, name } = channel;
-					outConfig.channels[name] = { displayName, name };
+					let { channelConfig, channelType, displayName, name } = channel;
+					if (channelType === CHANNEL_TYPES.PUBLIC) {
+						let out;
+
+						if (channelConfig) {
+							out = { channelConfig, displayName, name };
+						}
+						else {
+							out = { displayName, name };
+						}
+
+						outConfig.channels[name] = out;
+					}
 				});
 			}
 
@@ -100,15 +129,51 @@ module.exports = function(db, io) {
 		return null;
 	};
 
-	const getConfigChannelsInServer = function(serverName, ircConfig = currentIrcConfig) {
+	const getIrcConfigChannelByName = function(serverName, name, ircConfig = currentIrcConfig) {
+		let s = getIrcConfigByName(serverName, ircConfig);
+		if (s) {
+			let channels = s.channels.filter((channel) => channel.name === name);
+
+			if (channels) {
+				return channels[0] || null;
+			}
+		}
+
+		return null;
+	};
+
+	const getConfigPublicChannelsInServer = function(serverName, ircConfig = currentIrcConfig) {
 		const s = getIrcConfigByName(serverName, ircConfig);
 		if (s) {
-			return s.channels.map(
-				(val) => channelUtils.getChannelUri(serverName, val.name)
+			return s.channels.filter(
+				(channel) => channel.channelType === CHANNEL_TYPES.PUBLIC
+			).map(
+				(channel) => channelUtils.getChannelUri(serverName, channel.name)
 			);
 		}
 
 		return [];
+	};
+
+	const channelConfigValue = function(channelUri, name) {
+		let uriData = channelUtils.parseChannelUri(channelUri);
+
+		if (!uriData) {
+			// Invalid URI
+			return undefined;
+		}
+
+		let { channel, channelType, server } = uriData;
+
+		if (channelType === CHANNEL_TYPES.PUBLIC) {
+			let c = getIrcConfigChannelByName(server, channel);
+
+			if (c && c.channelConfig) {
+				return c.channelConfig[name];
+			}
+		}
+
+		return undefined;
 	};
 
 	// Storing
@@ -169,13 +234,15 @@ module.exports = function(db, io) {
 		], callback);
 	};
 
-	const addChannelToIrcConfig = function(serverName, name, data, callback) {
+	const addChannelToIrcConfig = function(serverName, name, channelType, data, callback) {
 		name = name.replace(/^#/, "");
 		async.waterfall([
 			(callback) => db.getServerId(serverName, callback),
-			(data, callback) => {
-				if (data) {
-					db.addChannelToIrcConfig(data.serverId, name, data, callback);
+			(serverData, callback) => {
+				if (serverData) {
+					db.addChannelToIrcConfig(
+						serverData.serverId, name, channelType, data, callback
+					);
 				}
 				else {
 					callback(new Error("No such server"));
@@ -184,10 +251,37 @@ module.exports = function(db, io) {
 		], callback);
 	};
 
+	const addChannelToIrcConfigFromUri = function(channelUri, callback) {
+		let uriData = channelUtils.parseChannelUri(channelUri);
+
+		if (!uriData) {
+			callback(new Error("Invalid channel URI"));
+			return;
+		}
+
+		let { channel, channelType, server } = uriData;
+
+		addChannelToIrcConfig(server, channel, channelType, {}, callback);
+	};
+
 	const modifyChannelInIrcConfig = function(serverName, name, details, callback) {
 		name = name.replace(/^#/, "");
+
+		// Add any new configuration to the old one
+		if (details.channelConfig) {
+			let current = getIrcConfigChannelByName(serverName, name);
+
+			if (current && current.channelConfig) {
+				details.channelConfig = _.assign(
+					{}, current.channelConfig, details.channelConfig
+				);
+			}
+		}
+
 		async.waterfall([
-			(callback) => db.getChannelId(serverName, name, callback),
+			(callback) => db.getChannelId(
+				serverName, name, CHANNEL_TYPES.PUBLIC, callback
+			),
 			(data, callback) => {
 				if (data) {
 					db.modifyChannelInIrcConfig(data.channelId, details, callback);
@@ -202,7 +296,9 @@ module.exports = function(db, io) {
 	const removeChannelFromIrcConfig = function(serverName, name, callback) {
 		name = name.replace(/^#/, "");
 		async.waterfall([
-			(callback) => db.getChannelId(serverName, name, callback),
+			(callback) => db.getChannelId(
+				serverName, name, CHANNEL_TYPES.PUBLIC, callback
+			),
 			(data, callback) => {
 				if (data) {
 					db.removeChannelFromIrcConfig(data.channelId, callback);
@@ -247,7 +343,11 @@ module.exports = function(db, io) {
 								async.parallel(
 									channelNames.map((channelName) =>
 										((callback) => addChannelToIrcConfig(
-											name, channelName, {}, callback
+											name,
+											channelName,
+											CHANNEL_TYPES.PUBLIC,
+											{},
+											callback
 										))
 									),
 									callback
@@ -273,11 +373,13 @@ module.exports = function(db, io) {
 
 	return {
 		addChannelToIrcConfig,
+		addChannelToIrcConfigFromUri,
 		addIrcServerFromDetails,
 		addServerToIrcConfig,
+		channelConfigValue,
 		channelIdCache: () => channelIdCache,
 		currentIrcConfig: () => currentIrcConfig,
-		getConfigChannelsInServer,
+		getConfigPublicChannelsInServer,
 		getIrcConfig,
 		getIrcConfigByName,
 		loadIrcConfig,

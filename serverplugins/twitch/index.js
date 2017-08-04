@@ -1,19 +1,22 @@
 const _ = require("lodash");
 
+const { CHANNEL_TYPES } = require("../../server/constants");
 const channelUtils = require("../../server/util/channels");
 const stringUtils = require("../../server/util/strings");
 
-const emoteParsing = require("./emoteParsing");
+const badges = require("./badges");
+const emotes = require("./emotes");
 const externalEmotes = require("./externalEmotes");
 const groupChats = require("./groupChats");
 const twitchApiData = require("./twitchApiData");
 const users = require("./users");
+const userStates = require("./userStates");
 const util = require("./util");
 
-const EMOTE_RELOAD_INTERVAL_MS = 3600000;
+const METADATA_RELOAD_INTERVAL_MS = 3600000;
 const MIN_TIME_BETWEEN_GROUP_CHAT_CALLS_MS = 10000;
 
-var twitchChannelCache = [];
+var twitchChannelCache = [], twitchRoomIdCache = {};
 var lastGroupChatCallTimes = {};
 
 module.exports = function(main) {
@@ -247,6 +250,31 @@ module.exports = function(main) {
 		}
 	};
 
+	const getGlobalBadgeDataForServer = function(client) {
+		if (!util.isTwitch(client)) {
+			return;
+		}
+
+		let serverName = client.config.name;
+		twitchApiData.requestGlobalBadgeData(function(data) {
+			if (data && data.badge_sets) {
+				main.serverData().setServerData(
+					serverName, { badgeData: data.badge_sets }
+				);
+			}
+		});
+	};
+
+	const getBadgeDataForChannel = function(channel, roomId) {
+		twitchApiData.requestChannelBadgeData(roomId, function(data) {
+			if (data && data.badge_sets) {
+				main.channelData().setChannelData(
+					channel, { badgeData: data.badge_sets }
+				);
+			}
+		});
+	};
+
 	// Events
 
 	const onIrcFrameworkConfig = (data) => {
@@ -270,14 +298,19 @@ module.exports = function(main) {
 			main.serverData().setServerData(client.config.name, { isTwitch: true });
 			loadExternalEmotesForClient(client);
 			updateGroupChatInfo(client);
+
+			// TODO: Only do these if the user has the setting on
+			// (and do them once they turn it on)
+			getGlobalBadgeDataForServer(client);
+			twitchApiData.requestGlobalCheerData();
 		}
 	};
 
 	const onJoin = function(data) {
-		const { client, channel, username } = data;
+		const { client, channel, meUsername, username } = data;
 		if (
 			util.isTwitch(client) &&
-			username === client.irc.user.nick
+			username === meUsername
 		) {
 			twitchChannelCache = _.uniq(twitchChannelCache.concat([channel]));
 			loadExternalEmotesForChannel(channel);
@@ -286,82 +319,77 @@ module.exports = function(main) {
 	};
 
 	const onPart = function(data) {
-		const { client, channel, username } = data;
+		const { client, channel, meUsername, username } = data;
 		if (
 			util.isTwitch(client) &&
-			username === client.irc.user.nick
+			username === meUsername
 		) {
 			externalEmotes.clearExternalEmotesForChannel(channel);
 			twitchChannelCache = _.without(twitchChannelCache, channel);
+			delete twitchRoomIdCache[channel];
 		}
 	};
 
-	const onMessageTags = function(data) {
-		var {
-			client, channel, message, meUsername, postedLocally,
-			serverName, tags, username
-		} = data;
+	const onMessageTags = function(message) {
+		let { client, channel, tags } = message;
 
 		if (util.isTwitch(client)) {
 			if (!tags) {
-				tags = data.tags = {};
+				tags = message.tags = {};
 			}
 
-			let channelUserState = twitchApiData.getUserState(channel);
+			// Cheers
 
-			if (tags.emotes) {
-				if (typeof tags.emotes === "string") {
-					tags.emotes = emoteParsing.parseEmoticonIndices(tags.emotes);
-				}
-			}
-			else if (
-				postedLocally && username === meUsername &&
-				channelUserState &&
-				twitchApiData.getEmoticonImages(channelUserState["emote-sets"])
-			) {
-				// We posted this message
-				twitchApiData.populateLocallyPostedTags(tags, serverName, channel, message);
-			}
-			else if ("emotes" in tags) {
-				// Type normalization
-				tags.emotes = [];
+			let roomId = twitchRoomIdCache[channel];
+			let cheerData = twitchApiData.getCheerData(0);
+
+			if (roomId) {
+				cheerData = twitchApiData.getCheerData(roomId).concat(cheerData);
 			}
 
-			// Add external emotes
-			tags.emotes = emoteParsing.generateEmoticonIndices(
+			// Emotes
+
+			let externalEmotes = getExternalEmotesForChannel(channel);
+			emotes.prepareEmotesInMessage(
 				message,
-				getExternalEmotesForChannel(channel),
-				tags.emotes || []
+				externalEmotes,
+				cheerData // TODO: respect setting
 			);
+
+			// Badges
+
+			badges.parseBadgesInTags(tags);
 		}
 	};
 
 	const onCustomMessage = function(data) {
-		const { channel, client, message, serverName, time } = data;
+		const { channel, client, message, meUsername, serverName, time } = data;
 		if (message && message.command && util.isTwitch(client)) {
-			switch(message.command) {
+			let { command, tags } = message;
+			switch(command) {
 				case "USERSTATE":
 				case "GLOBALUSERSTATE":
-					if (message.tags) {
-						if (message.command === "GLOBALUSERSTATE") {
-							twitchApiData.setGlobalUserState(serverName, message.tags);
-						}
-						else {
-							twitchApiData.setUserState(channel, message.tags);
-						}
-
-						if (message.tags["emote-sets"]) {
-							twitchApiData.requestEmoticonImagesIfNeeded(
-								message.tags["emote-sets"]
-							);
-						}
+					if (tags) {
+						badges.parseBadgesInTags(tags);
+						userStates.handleNewUserState(data);
 					}
 					break;
 
 				case "ROOMSTATE":
 					if (message.tags) {
-						//twitchApiData.setRoomState(channel, message.tags);
-						main.channelData().setChannelData(channel, message.tags);
+						let channelData = main.channelData();
+						let currentData = channelData.getChannelData(channel);
+						let oldRoomState = currentData && currentData.roomState || {};
+						let roomState = _.assign(oldRoomState, message.tags);
+						let roomId = roomState["room-id"];
+
+						main.channelData().setChannelData(channel, { roomState });
+
+						if (roomId && roomId !== "0") {
+							twitchRoomIdCache[channel] = roomId;
+							getBadgeDataForChannel(channel, roomId);
+							twitchApiData.requestChannelCheerData(roomId);
+						}
 					}
 					break;
 
@@ -373,13 +401,14 @@ module.exports = function(main) {
 						client,
 						channel,
 						message: messageText,
+						meUsername,
 						postedLocally: false,
 						serverName,
 						tags: message.tags,
 						username
 					};
 
-					onMessageTags(tagsInfo);
+					main.plugins().handleEvent("messageTags", tagsInfo);
 
 					main.incomingEvents().handleIncomingCustomEvent(
 						channel, serverName, username,
@@ -419,18 +448,117 @@ module.exports = function(main) {
 					main.incomingEvents().handleIncomingCustomEvent(
 						channel, serverName, clearedUsername,
 						time, "clearchat", line, message.tags, null,
-						`** ${clearedUsername} ${line}`, true, extraData
+						`** ${clearedUsername} ${line}`, true, null,
+						extraData
 					);
 					break;
 				}
 
-				/*case "WHISPER": {
-					console.log("RECEIVED WHISPER", message);
+				case "WHISPER": {
+					let username = message.nick;
+					let messageText = message.params[1] || "";
+					let tags = message.tags;
+
+					handleIncomingWhisper(
+						client, serverName, username, username,
+						time, messageText, tags, meUsername, false
+					);
+
 					break;
-				}*/
+				}
 			}
 		}
 	};
+
+	const handleIncomingWhisper = function(
+		client, serverName, convoUsername, authorUsername,
+		time, messageText, tags, meUsername, postedLocally, messageToken = null
+	) {
+		let channel = channelUtils.getPrivateConversationUri(
+			serverName, convoUsername
+		);
+
+		let meRegex = /^\/me\s+/, isAction = false;
+
+		if (meRegex.test(messageText)) {
+			isAction = true;
+			messageText = messageText.replace(meRegex, "");
+		}
+
+		let type = isAction ? "action" : "msg";
+
+		let tagsInfo = {
+			client,
+			channel,
+			message: messageText,
+			meUsername,
+			postedLocally,
+			serverName,
+			tags,
+			username: authorUsername
+		};
+
+		main.plugins().handleEvent("messageTags", tagsInfo);
+
+		main.incomingEvents().handleIncomingMessage(
+			channel, serverName, authorUsername,
+			time, type, messageText, tags, meUsername, messageToken
+		);
+	};
+
+	const onSendOutgoingMessage = function(data /*, callback */ ) {
+		let { uriData } = data;
+
+		if (uriData.channelType === CHANNEL_TYPES.PRIVATE) {
+			// Twitch behaviour for private messages is a little special...
+
+			let { channel, client, message, messageToken } = data;
+			let { server } = uriData;
+			let getIrcChannelName = main.ircControl().getIrcChannelNameFromUri;
+			let meUsername = client.irc.user.nick;
+			let username = getIrcChannelName(channel);
+			let time = new Date();
+
+			// Pick a random channel to send a /w command to
+
+			let channels = twitchChannelCache.filter(
+				(u) => u.substr(0, server.length) === server
+			);
+			let gatewayChannel = channels.length
+				? getIrcChannelName(channels[0])
+				: "#jtv";
+
+			// Send
+			// TODO: Do not pipe through *all* IRC /commands
+
+			let prefix = `/w ${username} `;
+			let blocks = client.irc.say(gatewayChannel, prefix + message);
+
+			if (!blocks || !blocks.length) {
+				blocks = [message];
+			}
+
+			// Handle custom incoming completely different from what was sent
+
+			let firstBlock = blocks[0];
+
+			if (firstBlock.substr(0, prefix.length) === prefix) {
+				blocks[0] = firstBlock.substr(prefix.length);
+			}
+
+			blocks.forEach((m) => {
+				handleIncomingWhisper(
+					client, server, username, meUsername,
+					time, m, {}, meUsername, true, messageToken
+				);
+			});
+
+			// Do not call the default action in the callback
+			return true;
+		}
+	};
+
+	// Utility requiring main
 
 	const loadGlobalExternalEmotesForAllClients = function() {
 		util.log("Reloading global external emotes for all clients...");
@@ -455,30 +583,43 @@ module.exports = function(main) {
 		loadExternalEmotesForAllChannels();
 	};
 
-	const updateChatInfoForAllClients = function() {
+	const reloadBadgeDataForAllChannels = function() {
+		util.log("Reloading badge data for all channels...");
+
+		_.forOwn(twitchRoomIdCache, function(roomId, channel) {
+			getBadgeDataForChannel(channel, roomId);
+		});
+	};
+
+	const reloadCheerDataForAllChannels = function() {
+		util.log("Reloading cheer data for all channels...");
+
+		_.forOwn(twitchRoomIdCache, function(roomId) {
+			twitchApiData.requestChannelCheerData(roomId);
+		});
+	};
+
+	const reloadMetadataForAllClients = function() {
 		const clients = main.ircControl().currentIrcClients();
 
 		if (clients && clients.length) {
 			clients.forEach((client) => updateGroupChatInfo(client));
 			clients.forEach((client) => updateUserChatInfoForClient(client));
+			clients.forEach((client) => getGlobalBadgeDataForServer(client));
 		}
+
+		twitchApiData.reloadEmoticonImages();
+		reloadAllExternalEmotes();
+		reloadBadgeDataForAllChannels();
+		twitchApiData.requestGlobalCheerData();
+		reloadCheerDataForAllChannels();
 	};
 
-	// Reload emotes and group chat data every hour
+	// Reload required meta data every hour
 
 	setInterval(
-		twitchApiData.reloadEmoticonImages,
-		EMOTE_RELOAD_INTERVAL_MS
-	);
-
-	setInterval(
-		reloadAllExternalEmotes,
-		EMOTE_RELOAD_INTERVAL_MS
-	);
-
-	setInterval(
-		updateChatInfoForAllClients,
-		EMOTE_RELOAD_INTERVAL_MS
+		reloadMetadataForAllClients,
+		METADATA_RELOAD_INTERVAL_MS
 	);
 
 	// React to external emote settings changes
@@ -506,6 +647,7 @@ module.exports = function(main) {
 		onIrcFrameworkConfig,
 		onJoin,
 		onMessageTags,
-		onPart
+		onPart,
+		onSendOutgoingMessage
 	};
 };

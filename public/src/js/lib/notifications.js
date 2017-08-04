@@ -1,5 +1,8 @@
-import { channelNameFromUri } from "./channelNames";
-import { getTwitchChannelDisplayNameString, getTwitchUserDisplayNameString } from "./displayNames";
+import {
+	getChannelDisplayString,
+	getTwitchUserDisplayNameString,
+	DISPLAY_NAME_PREFIX_TYPES
+} from "./displayNames";
 import { getChannelInfo } from "./ircConfigs";
 import store from "../store";
 
@@ -40,19 +43,30 @@ function sendNotification(title, body) {
 
 export function sendMessageNotification(msg) {
 	if (msg) {
-		let channelInfo = getChannelInfo(msg.channel);
-		let channelString = getTwitchChannelDisplayNameString(
-			channelNameFromUri(msg.channel),
-			channelInfo.displayName,
-			channelDisplayNameSetting,
-			userDisplayNameSetting
+		let { channel, message, tags, username } = msg;
+
+		let channelInfo = getChannelInfo(channel);
+		let channelDisplayName = channelInfo && channelInfo.displayName;
+		let userDisplayName = tags && tags["display-name"];
+
+		let channelString = getChannelDisplayString(
+			channel,
+			{
+				displayName: channelDisplayName,
+				enableTwitchChannelDisplayNames: channelDisplayNameSetting,
+				enableTwitchUserDisplayNames: userDisplayNameSetting,
+				prefixType: DISPLAY_NAME_PREFIX_TYPES.LOWERCASE,
+				userDisplayNames: { [username]: userDisplayName }
+			}
 		);
+
 		let name = getTwitchUserDisplayNameString(
-			msg.username,
-			msg.tags && msg.tags["display-name"],
+			username,
+			userDisplayName,
 			userDisplayNameSetting
 		);
-		sendNotification(`${name} in ${channelString}`, msg.message);
+
+		sendNotification(`${name} in ${channelString}`, message);
 	}
 }
 
@@ -75,9 +89,10 @@ export function startUpdatingNotificationsActiveState() {
 	store.subscribe(function() {
 		let state = store.getState();
 		let { appConfig, deviceState } = state;
+		let { enableDesktopNotifications } = appConfig;
+		let { inFocus, visible } = deviceState;
 
-		let active = appConfig.enableDesktopNotifications &&
-			(!deviceState.visible || !deviceState.inFocus);
+		let active = enableDesktopNotifications && (!visible || !inFocus);
 
 		if (active !== notificationsActive) {
 			notificationsActive = active;

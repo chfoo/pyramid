@@ -1,6 +1,13 @@
+import { CHANNEL_TYPES } from "../constants";
+
 const CHANNEL_URI_SEPARATOR = "/";
 
-export function getChannelUri(server, channel) {
+export function getChannelUri(server, channel, channelType = CHANNEL_TYPES.PUBLIC) {
+
+	if (channelType === CHANNEL_TYPES.PRIVATE) {
+		return getPrivateConversationUri(server, channel);
+	}
+
 	return server.replace(/\//g, "") +
 		CHANNEL_URI_SEPARATOR +
 		channel;
@@ -13,12 +20,20 @@ export function parseChannelUri(channelUri) {
 		return null;
 	}
 
+	let channelType = CHANNEL_TYPES.PUBLIC;
+
+	if (channelUri.substr(0, 8) === "private:") {
+		channelType = CHANNEL_TYPES.PRIVATE;
+		channelUri = channelUri.substr(8);
+		separatorLocation -= 8;
+	}
+
 	let server = channelUri.substr(0, separatorLocation);
 	let channel = channelUri.substr(
 		separatorLocation + CHANNEL_URI_SEPARATOR.length
 	);
 
-	return { channel, server };
+	return { channel, channelType, server };
 }
 
 export function channelNameFromUri(channelUri, prefix = "") {
@@ -41,15 +56,19 @@ export function serverNameFromChannelUri(channelUri) {
 	return null;
 }
 
-export function getChannelDisplayNameFromState(state, channelUri) {
+export function getPrivateConversationUri(serverName, username) {
+	return "private:" + getChannelUri(serverName, username);
+}
+
+export function getChannelIrcConfigFromState(state, channelUri) {
 	if (!channelUri) {
-		return "";
+		return undefined;
 	}
 
 	let uriData = parseChannelUri(channelUri);
 
 	if (!uriData) {
-		return "";
+		return undefined;
 	}
 
 	let { channel, server } = uriData;
@@ -58,9 +77,12 @@ export function getChannelDisplayNameFromState(state, channelUri) {
 	let setting = state.appConfig.enableTwitchChannelDisplayNames;
 
 	if (setting && config) {
-		let channelConfig = config.channels[channel];
-		if (channelConfig) {
-			return channelConfig.displayName;
-		}
+		let channelData = config.channels[channel];
+		return channelData;
 	}
+}
+
+export function getChannelDisplayNameFromState(state, channelUri) {
+	let channelData = getChannelIrcConfigFromState(state, channelUri);
+	return channelData && channelData.displayName || "";
 }

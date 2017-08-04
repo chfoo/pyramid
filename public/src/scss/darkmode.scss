@@ -8,12 +8,17 @@ body.darkmode {
 	.chatview__controls,
 	.channeluserlist,
 	.chatview .contextview__main,
-	.sidebar__system-menu,
-	.switcher a {
-		background-color: #111;
+	.pop-menu,
+	.switcher a,
+	.multichat__item {
+		background-color: #2b2b33;
 		color: #ccc;
 
-		border-color: #444;
+		border-color: #4b4b55;
+	}
+
+	.sidebar {
+		background-color: #222227;
 	}
 
 	h1, h2, h3, h4, h5, h6,
@@ -44,12 +49,15 @@ body.darkmode {
 		.line__channel,
 		.line__channel a,
 		.line time,
-		.line .prefix,
 		.userevent,
 		.bunchedevents,
 		.unhide,
 		&__channel-flags {
 			color: #777;
+		}
+
+		.line .prefix {
+			color: #999;
 		}
 
 		.userevent,
@@ -71,8 +79,8 @@ body.darkmode {
 				background-color: #444;
 			}
 
-			> span {
-				background-color: #111;
+			.line__main > span {
+				background-color: #2b2b33;
 			}
 		}
 
@@ -95,6 +103,12 @@ body.darkmode {
 				&:before {
 					background-color: #c00;
 				}
+			}
+		}
+
+		&__input input[type="text"] {
+			&:focus {
+				border-color: #5b5b88;
 			}
 		}
 	}
@@ -158,15 +172,20 @@ body.darkmode {
 		background-color: rgba(0,0,0,.25);
 	}
 
-	#header {
+	.sidebar__tabs .badge,
+	.sidebar__list .badge {
+		background-color: #258;
+	}
+
+	.global-header {
 		.highlightslink--highlighted {
 			background-color: #258;
-			border-color: #111;
+			border-color: #2b2b33;
 		}
 	}
 
 	// Keep the sidebar right border even in mobile mode
-	.sidebar:after {
+	.sidebar__outer:after {
 		background-color: rgba(255,255,255,.2);
 
 		@media #{$mobile-media} {
@@ -175,11 +194,11 @@ body.darkmode {
 		}
 	}
 
-	.channeluserlist:after {
+	.chatview__frame__secondary:after {
 		background-color: rgba(255,255,255,.2);
 	}
 
-	.sidebar--hidden:after {
+	.sidebar__outer--hidden:after {
 		@media #{$mobile-media} {
 			left: -1px;
 		}
@@ -205,17 +224,22 @@ body.darkmode {
 	.settingsview select,
 	.settingsview textarea,
 	.logbrowser input {
-		border-color: #666;
-		background-color: #333;
+		border-color: #7b7b88;
+		background-color: #4b4b55;
 		color: #eee;
 	}
 
-	.settings__detail-view {
-		background-color: #222;
+	.settings__detail-view,
+	.pop-menu .menu__link:hover {
+		background-color: #3b3b44;
 	}
 
 	.settings__detail-view .settings__list {
-		background-color: #111;
+		background-color: #2b2b33;
+	}
+
+	.settings__list-item:nth-child(even):not(.settings__list-item--selected) {
+		background-color: #33333b;
 	}
 
 	.settings__list-item--selected,
@@ -225,13 +249,45 @@ body.darkmode {
 		color: #000;
 	}
 
-	.settings__list-item:nth-child(even) {
-		background-color: #191919;
+	.pop-menu {
+		box-shadow: 0 5px 12px 0 rgba(0,0,0,.8);
+
+		&, .sep {
+			border-color: #6b6b77;
+		}
 	}
 
-	.sidebar__system-menu {
-		&, .sep {
-			border-color: #666;
+	.menu-opener--active {
+		background-color: #32323b;
+	}
+
+	.menu__link, .switcher button, .switcher a {
+		color: #bbb;
+	}
+
+	.sidebar__head {
+		.version {
+			color: #777;
+		}
+	}
+
+	@media #{$mobile-media} {
+		.sidebar, .channeluserlist {
+			box-shadow: 0 0 60px 0 #000;
+		}
+	}
+
+	.multichat {
+		&__inner {
+			background-color: #4b4b55;
+		}
+
+		&__item {
+			&--focus {
+				&:after {
+					border-color: rgba(255,255,255,.1);
+				}
+			}
 		}
 	}
 }

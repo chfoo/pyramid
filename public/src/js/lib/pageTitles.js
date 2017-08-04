@@ -1,8 +1,8 @@
 import { CATEGORY_NAMES, SETTINGS_PAGE_NAMES } from "../constants";
-import { channelNameFromUri } from "./channelNames";
-import { getTwitchChannelDisplayNameString, getTwitchUserDisplayNameString } from "./displayNames";
+import { getChannelDisplayString, getTwitchUserDisplayNameString } from "./displayNames";
 import { getChannelInfo } from "./ircConfigs";
-import * as route from "./routeHelpers";
+import { getUserInfo } from "./users";
+import { getRouteData } from "./routeHelpers";
 import store from "../store";
 
 var currentPathname = "";
@@ -26,13 +26,12 @@ function logTitle(date, title) {
 	return `${date} log of ` + title;
 }
 
-function channelDisplayNameString(name, displayName) {
-	return getTwitchChannelDisplayNameString(
-		name,
+function channelDisplayNameString(channel, displayName) {
+	return getChannelDisplayString(channel, {
 		displayName,
-		channelDisplayNameSetting,
-		userDisplayNameSetting
-	);
+		enableTwitchChannelDisplayNames: channelDisplayNameSetting,
+		enableTwitchUserDisplayNames: userDisplayNameSetting
+	});
 }
 
 function userDisplayNameString(name, displayName) {
@@ -44,31 +43,28 @@ function userDisplayNameString(name, displayName) {
 }
 
 function channelPageTitle(channelInfo) {
-	return siteTitle(
-		channelDisplayNameString(
-			channelNameFromUri(channelInfo.channel),
-			channelInfo.displayName
-		)
-	);
+	let { channel, displayName } = channelInfo;
+	return siteTitle(channelDisplayNameString(channel, displayName));
 }
 
 function userPageTitle(user) {
-	return siteTitle(userDisplayNameString(user.username, user.displayName));
+	let { displayName, username } = user;
+	return siteTitle(userDisplayNameString(username, displayName));
 }
 
 function channelPageLogTitle(channelInfo, date) {
+	let { channel, displayName } = channelInfo;
+
 	return siteTitle(logTitle(
-		date,
-		channelDisplayNameString(
-			channelNameFromUri(channelInfo.channel),
-			channelInfo.displayName
-		)
+		date, channelDisplayNameString(channel, displayName)
 	));
 }
 
 function userPageLogTitle(user, date) {
+	let { displayName, username } = user;
+
 	return siteTitle(logTitle(
-		date, userDisplayNameString(user.username, user.displayName)
+		date, userDisplayNameString(username, displayName)
 	));
 }
 
@@ -108,55 +104,52 @@ function commitTitle() {
 	document.title = prefix + currentTitle;
 }
 
-function getUserInfo(username) {
-	let state = store.getState();
-	return { username, ...state.lastSeenUsers[username] };
-}
-
 function handleLocationChange(location) {
 	const { pathname } = location;
 	currentPathname = pathname;
 
-	var m = route.parseChannelLogUrl(pathname);
+	let routeData = getRouteData(pathname);
 
-	if (m) {
-		setTitle(channelPageLogTitle(getChannelInfo(m[1]), m[2]));
-		return;
-	}
+	if (routeData) {
+		let { query, logDate, type } = routeData;
 
-	m = route.parseUserLogUrl(pathname);
+		switch (type) {
+			case "channel": {
+				let channelInfo = getChannelInfo(query);
+				if (channelInfo) {
+					if (logDate) {
+						setTitle(channelPageLogTitle(channelInfo, logDate));
+					}
+					else {
+						setTitle(channelPageTitle(channelInfo));
+					}
+					return;
+				}
+				break;
+			}
 
-	if (m) {
-		setTitle(userPageLogTitle(getUserInfo(m[1]), m[2]));
-		return;
-	}
+			case "user": {
+				let userInfo = getUserInfo(query);
+				if (userInfo) {
+					if (logDate) {
+						setTitle(userPageLogTitle(userInfo, logDate));
+					}
+					else {
+						setTitle(userPageTitle(userInfo));
+					}
+					return;
+				}
+				break;
+			}
 
-	m = route.parseChannelUrl(pathname);
+			case "settings":
+				setTitle(settingsPageTitle(query));
+				return;
 
-	if (m) {
-		setTitle(channelPageTitle(getChannelInfo(m[1])));
-		return;
-	}
-
-	m = route.parseUserUrl(pathname);
-
-	if (m) {
-		setTitle(userPageTitle(getUserInfo(m[1])));
-		return;
-	}
-
-	m = route.parseSettingsUrl(pathname);
-
-	if (m) {
-		setTitle(settingsPageTitle(m[2]));
-		return;
-	}
-
-	m = route.parseCategoryUrl(pathname);
-
-	if (m) {
-		setTitle(categoryPageTitle(m[1]));
-		return;
+			case "category":
+				setTitle(categoryPageTitle(query));
+				return;
+		}
 	}
 
 	// Fallback

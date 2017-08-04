@@ -25,6 +25,13 @@ const settings = {
 			requires: ["enableTwitch"]
 		},
 		{
+			name: "enableTwitchBadges",
+			readableName: "Enable Twitch user badges",
+			type: "bool",
+			description: "Show the user badges in Twitch chat",
+			requires: ["enableTwitch"]
+		},
+		{
 			name: "colorBlindness",
 			readableName: "Twitch colors colorblindness compensation",
 			type: "enum",
@@ -70,6 +77,18 @@ const settings = {
 			type: "bool",
 			description: "Show ban events (including reasons) in Twitch chats",
 			requires: ["enableTwitch"]
+		},
+		{
+			name: "showTwitchCheers",
+			readableName: "Show cheermotes",
+			type: "enum",
+			description: "Show the cheermotes displayed when someone sends bits on Twitch",
+			requires: ["enableTwitch"],
+			valueNames: [
+				"Off",
+				"Static emotes",
+				"Animated emotes"
+			]
 		}
 	],
 

@@ -7,12 +7,15 @@ import { createBrowserHistory } from "history";
 
 import App from "./components/App.jsx";
 import ChatViewWrapper from "./chatview/ChatViewWrapper.jsx";
+import MultiChatView from "./chatview/MultiChatView.jsx";
 import NoChatView from "./chatview/NoChatView.jsx";
 import SettingsView from "./settingsview/SettingsView.jsx";
 
 import actions from "./actions";
 import { initializeIo } from "./lib/io";
+import setUpDataExpiration from "./lib/dataExpiration";
 import { initializeMessageCaches } from "./lib/messageCaches";
+import { importLayoutFromLocalStorage } from "./lib/multiChat";
 import setUpPageTitles from "./lib/pageTitles";
 import { startUpdatingNotificationsActiveState } from "./lib/notifications";
 import * as routes from "./lib/routeHelpers";
@@ -31,11 +34,14 @@ if (__DEV__) {
 
 const history = createBrowserHistory();
 setUpPageTitles(history);
+setUpDataExpiration(history);
+
+const isHome = location.pathname === routes.homeUrl;
 
 // Data store
 
 var currentViewState = {
-	sidebarVisible: location.pathname === "/" || !isMobile()
+	sidebarVisible: isHome || !isMobile()
 };
 
 if (window.pyramid_viewState) {
@@ -51,6 +57,11 @@ if (window.pyramid_myToken) {
 
 if (window.pyramid_appConfig) {
 	store.dispatch(actions.appConfig.update(window.pyramid_appConfig));
+}
+
+if (window.pyramid_awakeTime) {
+	let awakeTime = window.pyramid_awakeTime;
+	store.dispatch(actions.systemInfo.update({ awakeTime }));
 }
 
 if (window.pyramid_friendsList) {
@@ -85,8 +96,18 @@ if (window.pyramid_serverData) {
 	store.dispatch(actions.serverData.set(window.pyramid_serverData));
 }
 
+if (window.pyramid_unseenConversations) {
+	store.dispatch(actions.unseenConversations.set(window.pyramid_unseenConversations));
+}
+
 if (window.pyramid_unseenHighlights) {
 	store.dispatch(actions.unseenHighlights.set(window.pyramid_unseenHighlights));
+}
+
+// Local storage
+
+if (isHome) {
+	importLayoutFromLocalStorage();
 }
 
 // Sockets
@@ -110,7 +131,7 @@ if (main) {
 			<Router history={history}>
 				<App>
 					<Switch>
-						<Route exact path={routes.homeUrl} component={NoChatView} />
+						<Route exact path={routes.homeUrl} component={MultiChatView} />
 						<Route
 							path={routes.channelUrl(
 								":serverName/:channelName", ":logDate", 0, false
@@ -128,16 +149,33 @@ if (main) {
 							component={ChatViewWrapper} />
 						<Route
 							path={routes.userUrl(
-								":username", ":logDate"
+								":username", ":logDate", 0, false
 							) + "/page/:pageNumber"}
 							component={ChatViewWrapper} />
 						<Route
 							path={routes.userUrl(
-								":username", ":logDate"
+								":username", ":logDate", 0, false
 							)}
 							component={ChatViewWrapper} />
 						<Route
-							path={routes.userUrl(":username")}
+							path={routes.userUrl(
+								":username", "", 0, false
+							)}
+							component={ChatViewWrapper} />
+						<Route
+							path={routes.conversationUrl(
+								":serverName", ":username", ":logDate", 0, false
+							) + "/page/:pageNumber"}
+							component={ChatViewWrapper} />
+						<Route
+							path={routes.conversationUrl(
+								":serverName", ":username", ":logDate", 0, false
+							)}
+							component={ChatViewWrapper} />
+						<Route
+							path={routes.conversationUrl(
+								":serverName", ":username", "", 0, false
+							)}
 							component={ChatViewWrapper} />
 						<Route
 							path={routes.settingsPattern}

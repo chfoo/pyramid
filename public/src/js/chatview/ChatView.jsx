@@ -3,7 +3,6 @@ import PropTypes from "prop-types";
 import { connect } from "react-redux";
 import shallowEqual from "fbjs/lib/shallowEqual";
 
-import ChannelUserList from "./ChannelUserList.jsx";
 import ChatFrame from "./ChatFrame.jsx";
 import ChatViewFooter from "./ChatViewFooter.jsx";
 import ChatViewHeader from "./ChatViewHeader.jsx";
@@ -27,7 +26,7 @@ class ChatView extends PureComponent {
 	constructor(props) {
 		super(props);
 
-		this.contentLogUrl = this.contentLogUrl.bind(this);
+		this.contentUrl = this.contentUrl.bind(this);
 
 		this.state = {
 			loading: true
@@ -55,12 +54,16 @@ class ChatView extends PureComponent {
 		this.cleanUpIfNeeded(newProps);
 	}
 
-	contentLiveUrl() {
-		const { pageType, pageQuery } = this.props;
-		return subjectUrl(pageType, pageQuery);
+	componentWillUnmount() {
+		let { logDate, pageType, pageQuery } = this.props;
+
+		if (!logDate) {
+			let subject = subjectName(pageType, pageQuery);
+			io.unsubscribeFromSubject(subject);
+		}
 	}
 
-	contentLogUrl(date, pageNumber) {
+	contentUrl(date, pageNumber) {
 		const { pageType, pageQuery } = this.props;
 		return subjectUrl(pageType, pageQuery, date, pageNumber);
 	}
@@ -74,13 +77,14 @@ class ChatView extends PureComponent {
 		pageType, pageQuery, logDate, pageNumber,
 		oldType, oldQuery, oldLogDate
 	) {
-		const subject = subjectName(pageType, pageQuery);
+		let subject = subjectName(pageType, pageQuery);
+		let subscribed = true;
 
 		if (logDate) {
 			io.requestLogFile(subject, logDate, pageNumber);
 		}
 		else {
-			io.subscribeToSubject(subject);
+			subscribed = io.subscribeToSubject(subject);
 		}
 
 		io.requestLogDetails(subject, logDate);
@@ -89,6 +93,8 @@ class ChatView extends PureComponent {
 			const oldSubject = subjectName(oldType, oldQuery);
 			io.unsubscribeFromSubject(oldSubject);
 		}
+
+		return subscribed;
 	}
 
 	requestDataIfNeeded(props = this.props, oldProps = {}) {
@@ -119,11 +125,11 @@ class ChatView extends PureComponent {
 			pageNumber !== oldPageNumber
 		) {
 			// Time to request data
-			this.requestData(
+			let subscribed = this.requestData(
 				pageType, pageQuery, logDate, pageNumber,
 				oldType, oldQuery, oldLogDate
 			);
-			this.setState({ loading: true });
+			this.setState({ loading: subscribed });
 		}
 
 		else if (
@@ -155,11 +161,30 @@ class ChatView extends PureComponent {
 		}
 	}
 
+	getLastServerName(props = this.props) {
+		let { lines } = props;
+
+		if (lines && lines.length) {
+			for (var i = lines.length - 1; i >= 0; i--) {
+				let line = lines[i];
+
+				if (line && line.server) {
+					return line.server;
+				}
+			}
+		}
+
+		return null;
+	}
+
 	render() {
 		const {
-			collapseJoinParts,
+			connectionStatus,
+			currentLayout,
+			deviceFocus,
 			displayName,
-			inFocus,
+			focus,
+			index,
 			lines,
 			logBrowserOpen,
 			logDate,
@@ -169,6 +194,7 @@ class ChatView extends PureComponent {
 			pageQuery,
 			pageType,
 			selectedLine,
+			solo,
 			userListOpen
 		} = this.props;
 
@@ -176,16 +202,7 @@ class ChatView extends PureComponent {
 
 		const loadingStyles = loading ? null : HIDDEN_STYLES;
 
-		const liveUrl = this.contentLiveUrl();
 		const isLiveChannel = this.isLiveChannel();
-
-		var userList = null;
-
-		if (isLiveChannel && userListOpen) {
-			userList = <ChannelUserList
-				channel={pageQuery}
-				key="userList" />;
-		}
 
 		const loader = (
 			<div key="loader" style={loadingStyles}>
@@ -194,28 +211,39 @@ class ChatView extends PureComponent {
 		);
 
 		const className = "mainview chatview" +
+			(solo ? " chatview--solo" : "") +
 			(isLiveChannel ? " chatview--live-channel" : "") +
 			(logBrowserOpen || logDate ? " chatview--logbrowsing" : "") +
 			(userListOpen && isLiveChannel ? " chatview--userlisting" : "");
+
+		var deducedServerName;
+
+		if (pageType === PAGE_TYPES.USER) {
+			deducedServerName = this.getLastServerName();
+		}
 
 		return (
 			<div className={className}>
 
 				<ChatViewHeader
 					displayName={displayName}
+					index={index}
 					isLiveChannel={isLiveChannel}
-					liveUrl={liveUrl}
 					logBrowserOpen={logBrowserOpen}
 					logDate={logDate}
 					logDetails={logDetails}
-					logUrl={this.contentLogUrl}
+					logUrl={this.contentUrl}
+					pageNumber={pageNumber}
 					pageQuery={pageQuery}
 					pageType={pageType}
+					serverName={deducedServerName}
 					key="header" />
 
 				<ChatFrame
-					collapseJoinParts={collapseJoinParts}
-					inFocus={inFocus}
+					connectionStatus={connectionStatus}
+					currentLayout={currentLayout}
+					inFocus={deviceFocus}
+					isLiveChannel={isLiveChannel}
 					lines={lines}
 					loading={loading}
 					logBrowserOpen={logBrowserOpen}
@@ -229,15 +257,16 @@ class ChatView extends PureComponent {
 
 				<ChatViewFooter
 					displayName={displayName}
+					focus={focus}
+					index={index}
 					isLiveChannel={isLiveChannel}
 					logDate={logDate}
 					logDetails={logDetails}
-					logUrl={this.contentLogUrl}
 					pageNumber={pageNumber}
 					pageQuery={pageQuery}
+					pageType={pageType}
 					key="footer" />
 
-				{ userList }
 				{ loader }
 
 			</div>
@@ -246,9 +275,12 @@ class ChatView extends PureComponent {
 }
 
 ChatView.propTypes = {
-	collapseJoinParts: PropTypes.bool,
+	connectionStatus: PropTypes.object,
+	currentLayout: PropTypes.array,
+	deviceFocus: PropTypes.bool,
 	displayName: PropTypes.string,
-	inFocus: PropTypes.bool,
+	focus: PropTypes.bool,
+	index: PropTypes.number,
 	isVisible: PropTypes.bool,
 	lastReload: PropTypes.object,
 	lineId: PropTypes.string,
@@ -261,6 +293,7 @@ ChatView.propTypes = {
 	pageQuery: PropTypes.string.isRequired,
 	pageType: PropTypes.oneOf(PAGE_TYPE_NAMES).isRequired,
 	selectedLine: PropTypes.object,
+	solo: PropTypes.bool,
 	userListOpen: PropTypes.bool
 };
 
@@ -303,9 +336,10 @@ const mapStateToProps = function(state, ownProps) {
 	const logDetails = state.logDetails[subject];
 
 	return {
-		collapseJoinParts: state.appConfig.collapseJoinParts,
+		connectionStatus: state.connectionStatus,
+		currentLayout: state.viewState.currentLayout,
 		displayName,
-		inFocus: state.deviceState.inFocus,
+		deviceFocus: state.deviceState.inFocus,
 		isVisible: state.deviceState.visible,
 		lastReload,
 		lines,

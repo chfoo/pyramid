@@ -16,43 +16,42 @@ const tokenUtils = require("./util/tokens");
 
 module.exports = function(main) {
 
-	var server, io;
+	var server, io, allConnections = [];
 
-	// Pass through
-	const emit = () => {
-		if (io) {
-			return io.emit.apply(io, arguments);
+	const all = {
+		emit: function() {
+			let args = arguments;
+			allConnections.forEach((socket) => {
+				// Pass through
+				socket.emit.apply(socket, args);
+			});
 		}
-
-		return null;
 	};
 
 	// Direct socket emissions
 
 	const emitTokenStatus = function(socket, isAccepted) {
-		socket.emit("tokenStatus", {
-			isAccepted
-		});
+		socket.emit("tokenStatus", { isAccepted });
 	};
 
 	const emitChannelCache = function(socket, channel) {
-		socket.emit("channelCache", {
-			channel,
-			cache: main.messageCaches().getChannelCache(channel)
+		main.messageCaches().getChannelCache(channel, (err, cache) => {
+			cache = cache || [];
+			socket.emit("channelCache", { channel, cache });
 		});
 	};
 
 	const emitUserCache = function(socket, username) {
-		socket.emit("userCache", {
-			username,
-			cache: main.messageCaches().getUserCache(username)
+		main.messageCaches().getUserCache(username, (err, cache) => {
+			cache = cache || [];
+			socket.emit("userCache", { username, cache });
 		});
 	};
 
 	const emitCategoryCache = function(socket, categoryName) {
-		socket.emit("categoryCache", {
-			categoryName,
-			cache: main.messageCaches().getCategoryCache(categoryName)
+		main.messageCaches().getCategoryCache(categoryName, (err, cache) => {
+			cache = cache || [];
+			socket.emit("categoryCache", { categoryName, cache });
 		});
 	};
 
@@ -137,7 +136,7 @@ module.exports = function(main) {
 	};
 
 	const emitIrcConfig = function(socket, callback) {
-		socket = socket || io;
+		socket = socket || all;
 		main.ircConfig().loadIrcConfig((err, data) => {
 			if (!err) {
 				data = main.ircConfig().safeIrcConfigDict(data);
@@ -198,7 +197,7 @@ module.exports = function(main) {
 	};
 
 	const emitServerData = function(socket, server) {
-		socket = socket || io;
+		socket = socket || all;
 		if (socket) {
 			let data = main.serverData().getServerData(server);
 			if (data) {
@@ -270,7 +269,7 @@ module.exports = function(main) {
 	};
 
 	const emitUnseenHighlights = function(socket) {
-		socket = socket || io;
+		socket = socket || all;
 		if (socket) {
 			socket.emit(
 				"unseenHighlights",
@@ -280,10 +279,30 @@ module.exports = function(main) {
 	};
 
 	const emitNewHighlight = function(socket, message) {
-		socket = socket || io;
+		socket = socket || all;
 		if (socket) {
 			socket.emit(
 				"newHighlight",
+				{ message }
+			);
+		}
+	};
+
+	const emitUnseenConversations = function(socket) {
+		socket = socket || all;
+		if (socket) {
+			socket.emit(
+				"unseenConversations",
+				{ list: main.unseenConversations().unseenConversations() }
+			);
+		}
+	};
+
+	const emitNewPrivateMessage = function(socket, message) {
+		socket = socket || all;
+		if (socket) {
+			socket.emit(
+				"newPrivateMessage",
 				{ message }
 			);
 		}
@@ -297,8 +316,16 @@ module.exports = function(main) {
 		});
 	};
 
+	const emitLineContext = function(socket, lineId) {
+		main.logs().getLineContext(lineId, (err, line) => {
+			if (!err) {
+				socket.emit("lineInfo", { line });
+			}
+		});
+	};
+
 	const emitIrcConnectionStatus = function(serverName, status, socket) {
-		socket = socket || io;
+		socket = socket || all;
 		if (socket) {
 			socket.emit("connectionStatus", {
 				serverName,
@@ -308,7 +335,7 @@ module.exports = function(main) {
 	};
 
 	const emitOnlineFriends = function(socket) {
-		socket = socket || io;
+		socket = socket || all;
 		if (socket) {
 			socket.emit("onlineFriends", {
 				data: main.userLists().currentOnlineFriends()
@@ -317,7 +344,7 @@ module.exports = function(main) {
 	};
 
 	const emitViewState = function(socket) {
-		socket = socket || io;
+		socket = socket || all;
 		if (socket) {
 			socket.emit("viewState", {
 				data: main.viewState.currentViewState()
@@ -360,6 +387,7 @@ module.exports = function(main) {
 
 			socket.on("disconnect", () => {
 				main.recipients().removeRecipientEverywhere(socket);
+				_.pull(allConnections, socket);
 			});
 
 			socket.on("token", (details) => {
@@ -368,6 +396,10 @@ module.exports = function(main) {
 
 					const isAccepted = tokenUtils.isAnAcceptedToken(connectionToken);
 					emitTokenStatus(socket, isAccepted);
+
+					if (isAccepted) {
+						allConnections.push(socket);
+					}
 				}
 			});
 
@@ -469,7 +501,7 @@ module.exports = function(main) {
 				}
 			});
 
-			// See an unseen highlight
+			// See an unseen highlight or private message conversation
 
 			socket.on("reportHighlightAsSeen", (details) => {
 				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
@@ -481,6 +513,24 @@ module.exports = function(main) {
 			socket.on("clearUnseenHighlights", () => {
 				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
 				main.unseenHighlights().clearUnseenHighlights();
+			});
+
+			socket.on("reportConversationAsSeen", (details) => {
+				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
+				if (
+					details &&
+					typeof details.serverName === "string" &&
+					typeof details.username === "string"
+				) {
+					main.unseenConversations().reportUserAsSeen(
+						details.serverName, details.username
+					);
+				}
+			});
+
+			socket.on("clearUnseenConversations", () => {
+				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
+				main.unseenConversations().clearUnseenConversations();
 			});
 
 			// Storing view state
@@ -502,13 +552,14 @@ module.exports = function(main) {
 					// if the command itself includes an accepted token
 
 					if (tokenUtils.isAnAcceptedToken(details.token)) {
+						const message = stringUtils.normalise(details.message);
+						main.ircControl().sendOutgoingMessage(
+							details.channel, message, details.messageToken
+						);
 
 						if (details.messageToken) {
 							emitMessagePosted(socket, details.channel, details.messageToken);
 						}
-
-						const message = stringUtils.normalise(details.message);
-						main.ircControl().sendOutgoingMessage(details.channel, message);
 					}
 				}
 			});
@@ -522,6 +573,28 @@ module.exports = function(main) {
 					typeof details.lineId === "string"
 				) {
 					emitLineInfo(socket, details.lineId);
+				}
+			});
+
+			socket.on("requestLineContext", (details) => {
+				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
+				if (
+					details &&
+					typeof details.lineId === "string"
+				) {
+					emitLineContext(socket, details.lineId);
+				}
+			});
+
+			// Requesting channel data
+
+			socket.on("requestChannelData", (details) => {
+				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
+				if (
+					details &&
+					typeof details.channel === "string"
+				) {
+					emitChannelData(socket, details.channel);
 				}
 			});
 
@@ -691,7 +764,7 @@ module.exports = function(main) {
 					const name = stringUtils.formatUriName(details.name);
 
 					main.ircConfig().addChannelToIrcConfig(
-						serverName, name, {},
+						serverName, name, constants.CHANNEL_TYPES.PUBLIC, {},
 						(err) => {
 							if (err) {
 								console.warn("Error occurred adding irc channel", err);
@@ -719,6 +792,36 @@ module.exports = function(main) {
 							}
 							else {
 								main.ircControl().partIrcChannel(serverName, name);
+								emitIrcConfig(socket);
+							}
+						}
+					);
+				}
+			});
+
+			socket.on("setChannelConfigValue", (details) => {
+				if (!tokenUtils.isAnAcceptedToken(connectionToken)) { return; }
+				if (
+					details &&
+					details.serverName &&
+					details.channelName &&
+					details.key
+				) {
+					let { key, value } = details;
+					let serverName = stringUtils.formatUriName(details.serverName);
+					let channelName = stringUtils.formatUriName(details.channelName);
+
+					main.ircConfig().modifyChannelInIrcConfig(
+						serverName, channelName,
+						{ channelConfig: { [key]: value } },
+						(err) => {
+							if (err) {
+								console.warn(
+									"Error occurred setting channel config value",
+									err
+								);
+							}
+							else {
 								emitIrcConfig(socket);
 							}
 						}
@@ -818,7 +921,7 @@ module.exports = function(main) {
 			if (cachedLastSeens) {
 				const values = Object.values(cachedLastSeens);
 				if (values && values.length) {
-					io.emit("lastSeen", values);
+					all.emit("lastSeen", values);
 				}
 			}
 		}
@@ -828,7 +931,6 @@ module.exports = function(main) {
 	setInterval(broadcastLastSeenUpdates, constants.LAST_SEEN_UPDATE_RATE);
 
 	const output = {
-		emit,
 		emitCategoryCacheToRecipients,
 		emitChannelUserListToRecipients,
 		emitDataToChannel,
@@ -837,9 +939,11 @@ module.exports = function(main) {
 		emitIrcConnectionStatus,
 		emitListEventToRecipients,
 		emitNewHighlight,
+		emitNewPrivateMessage,
 		emitOnlineFriends,
 		emitServerData,
 		emitUnseenHighlights,
+		emitUnseenConversations,
 		setServer
 	};
 

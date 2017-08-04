@@ -1,7 +1,7 @@
 .settingsview {
-	padding: 20px;
-	margin-top: 40px;
-	margin-bottom: 0;
+	.mainview__inner-frame {
+		padding: 20px;
+	}
 
 	> div > *:first-child {
 		margin-top: 0;
@@ -176,6 +176,10 @@
 		width: 30%;
 		background-color: #fff;
 		overflow: hidden;
+
+		.settings--irc & {
+			min-width: 350px;
+		}
 
 		ul {
 			border-left: none;

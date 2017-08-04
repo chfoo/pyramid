@@ -1,19 +1,23 @@
 import React, { PureComponent } from "react";
 import PropTypes from "prop-types";
 import { connect } from "react-redux";
-import { Link } from "react-router-dom";
 
+import ChatViewLink from "./ChatViewLink.jsx";
+import { CHANNEL_TYPES } from "../constants";
+import { getChannelUri } from "../lib/channelNames";
+import { getMyIrcNick } from "../lib/connectionStatus";
 import { getTwitchUserDisplayNameData } from "../lib/displayNames";
-import { userUrl } from "../lib/routeHelpers";
+
+const block = "userlink";
 
 class UserLink extends PureComponent {
 	render() {
 		const {
-			className,
 			displayName,
 			enableTwitchUserDisplayNames,
 			friendsList,
 			noLink,
+			serverName,
 			username
 		} = this.props;
 
@@ -53,32 +57,50 @@ class UserLink extends PureComponent {
 			}
 		}
 
-		// Link-free output for non-friends
+		var type, query;
 
 		if (!isFriend || noLink) {
-			return <span className={className} key="main">{ content }</span>;
+
+			// Link-free output if wanted
+
+			let me = serverName && getMyIrcNick(serverName);
+
+			if (noLink || !serverName || username === me) {
+				return <span className={block} key="main">{ content }</span>;
+			}
+
+			// Conversation link output for non-friends
+
+			type = "channel";
+			query = getChannelUri(serverName, username, CHANNEL_TYPES.PRIVATE);
 		}
 
-		// Link output for friends
+		else {
+			type = "user";
+			query = username;
+		}
+
+		// User page link output for friends
 
 		return (
-			<Link
-				className={className}
-				to={userUrl(username)}
+			<ChatViewLink
+				className={block}
+				query={query}
+				type={type}
 				title={tooltip}
 				key="main">
 				{ content }
-			</Link>
+			</ChatViewLink>
 		);
 	}
 }
 
 UserLink.propTypes = {
-	className: PropTypes.string,
 	displayName: PropTypes.string,
 	enableTwitchUserDisplayNames: PropTypes.number,
 	friendsList: PropTypes.object,
 	noLink: PropTypes.bool,
+	serverName: PropTypes.string,
 	username: PropTypes.string.isRequired
 };
 

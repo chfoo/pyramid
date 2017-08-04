@@ -24,15 +24,20 @@ class SettingsList extends PureComponent {
 		this.setBatchAddNames = refElSetter("batchAddNames").bind(this);
 
 		this.state = {
-			selectedItem: null,
+			selectedItem: props.selectedItem || null,
 			showingAddForm: null
 		};
 	}
 
-	componentWillReceiveProps(newProps) {
-		if (newProps.list !== this.props.list) {
+	componentWillReceiveProps(nextProps) {
+		if (nextProps.list !== this.props.list) {
 			// Reset event handlers map if we have a new list
 			this.eventHandlers.clear();
+		}
+
+		if (nextProps.selectedItem !== this.props.selectedItem) {
+			// Respond to external changes of selected item
+			this.setState({ selectedItem: nextProps.selectedItem });
 		}
 	}
 
@@ -221,7 +226,7 @@ class SettingsList extends PureComponent {
 	}
 
 	renderListItem(item, i) {
-		const { extraColumn, itemKindName, onRemove } = this.props;
+		const { brief, extraColumn, itemKindName, onRemove } = this.props;
 		const { selectedItem } = this.state;
 
 		const eventHandler = this.getEventHandler(item);
@@ -236,10 +241,11 @@ class SettingsList extends PureComponent {
 			? extraColumn(item)
 			: null;
 
+		const removeText = "Remove" + (!brief ? " " + itemKindName : "");
 		const removeButton = (typeof onRemove === "function")
 			? (
 				<button onClick={eventHandler.remove}>
-					Remove { itemKindName }
+					{ removeText }
 				</button>
 			)
 			: null;
@@ -262,14 +268,16 @@ class SettingsList extends PureComponent {
 
 		var adder = null;
 
-		if (showingAddForm === "one") {
-			adder = this.renderAddForm();
-		}
-		else if (showingAddForm === "batch") {
-			adder = this.renderBatchAddForm();
-		}
-		else {
-			adder = this.renderAddButtons();
+		if (typeof onAdd === "function") {
+			if (showingAddForm === "one") {
+				adder = this.renderAddForm();
+			}
+			else if (showingAddForm === "batch") {
+				adder = this.renderBatchAddForm();
+			}
+			else {
+				adder = this.renderAddButtons();
+			}
 		}
 
 		const className = "settings__list" + (
@@ -280,7 +288,7 @@ class SettingsList extends PureComponent {
 
 		return (
 			<div className={className} key="main">
-				{ typeof onAdd === "function" ? adder : null }
+				{ adder }
 				<ul>{ listEls }</ul>
 			</div>
 		);
@@ -288,16 +296,18 @@ class SettingsList extends PureComponent {
 }
 
 SettingsList.propTypes = {
+	brief: PropTypes.bool,
 	extraColumn: PropTypes.func,
 	extraColumnName: PropTypes.string,
 	extraColumnDefaultValue: PropTypes.oneOfType([
 		PropTypes.string, PropTypes.number
 	]),
-	itemKindName: PropTypes.string,
-	list: PropTypes.array,
+	itemKindName: PropTypes.string.isRequired,
+	list: PropTypes.array.isRequired,
 	onAdd: PropTypes.func,
 	onRemove: PropTypes.func,
-	onSelect: PropTypes.func
+	onSelect: PropTypes.func,
+	selectedItem: PropTypes.any
 };
 
 export default SettingsList;

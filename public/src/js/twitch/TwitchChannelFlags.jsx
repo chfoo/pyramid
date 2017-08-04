@@ -15,15 +15,16 @@ const TWITCH_CHANNEL_FLAGS_LABELS = {
 class TwitchChannelFlags extends PureComponent {
 
 	render() {
-		let { channelData } = this.props;
+		let { channelData = {} } = this.props;
+		let { roomState } = channelData;
 
-		if (channelData) {
+		if (roomState) {
 
 			let flags = [], added = false;
-			let roomId = parseInt(channelData["room-id"], 10);
+			let roomId = roomState["room-id"];
 
 			forOwn(TWITCH_CHANNEL_FLAGS_LABELS, (label, prop) => {
-				let value = parseInt(channelData[prop], 10);
+				let value = parseInt(roomState[prop], 10);
 
 				// Flip weird value for followers prop
 				if (prop === "followers-only" && !isNaN(value)) {
@@ -45,7 +46,7 @@ class TwitchChannelFlags extends PureComponent {
 					else if (prop === "followers-only") {
 
 						// Abort if no room id
-						if (isNaN(roomId) || roomId <= 0) {
+						if (!roomId || roomId === "0") {
 							return;
 						}
 

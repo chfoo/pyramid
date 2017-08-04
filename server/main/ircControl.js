@@ -1,7 +1,9 @@
+const { CHANNEL_TYPES } = require("../constants");
+
 module.exports = function(irc, ircConfig, io) {
 	const addAndJoinChannel = function(serverName, name, data, callback) {
 		ircConfig.addChannelToIrcConfig(
-			serverName, name, data,
+			serverName, name, CHANNEL_TYPES.PUBLIC, data,
 			(err) => {
 				joinIrcChannel(serverName, name);
 				if (io) {
@@ -48,12 +50,16 @@ module.exports = function(irc, ircConfig, io) {
 		irc.partChannel(serverName, channelName);
 	};
 
-	const sendOutgoingMessage = function(channel, message, isAction = false) {
-		irc.sendOutgoingMessage(channel, message, isAction);
+	const sendOutgoingMessage = function(channel, message, messageToken) {
+		irc.sendOutgoingMessage(channel, message, messageToken);
 	};
 
 	const currentIrcClients = function() {
 		return irc.clients();
+	};
+
+	const getIrcChannelNameFromUri = function(channelUri) {
+		return irc.getIrcChannelNameFromUri(channelUri);
 	};
 
 	return {
@@ -62,6 +68,7 @@ module.exports = function(irc, ircConfig, io) {
 		currentIrcClients,
 		disconnectAndRemoveIrcServer,
 		disconnectIrcServer,
+		getIrcChannelNameFromUri,
 		joinIrcChannel,
 		loadAndConnectUnconnectedIrcs,
 		partIrcChannel,

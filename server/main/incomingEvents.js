@@ -23,7 +23,8 @@ module.exports = function(
 	const handleIncomingMessageEvent = function(
 		channelUri, serverName, username,
 		time, type, message, tags, meUsername,
-		logLine, isSeenActivity = true, customCols = null
+		logLine, isSeenActivity = true, messageToken = null,
+		customCols = null
 	) {
 		const symbol = userLists.getUserCurrentSymbol(channelUri, username);
 
@@ -58,9 +59,18 @@ module.exports = function(
 			}
 		}
 
-		// Highlighted? Add to specific logs
+		// Display name
 
-		var highlightStrings = [];
+		let displayName = tags && tags["display-name"];
+
+		if (serverName && username && displayName) {
+			tags["display-name"] = displayName = stringUtils.clean(displayName);
+			setUserCachedDisplayName(username, serverName, displayName);
+		}
+
+		// Highlights or private messages
+
+		var highlightStrings = [], privateMessageHighlightUser;
 
 		if (
 			meUsername &&
@@ -69,6 +79,8 @@ module.exports = function(
 				username.toLowerCase() !== meUsername.toLowerCase()
 			)
 		) {
+			// Highlighted? Add to specific logs
+
 			highlightStrings = nicknames.getHighlightStringsForMessage(
 				message, channelUri, meUsername
 			);
@@ -76,15 +88,14 @@ module.exports = function(
 			if (highlightStrings.length && appConfig.configValue("logLinesFile")) {
 				log.logCategoryLine("mentions", channelUri, logLine, time);
 			}
-		}
 
-		// Display name
+			// Check if this is a private message not from you
 
-		let displayName = tags && tags["display-name"];
+			let { channelType } = channelUtils.parseChannelUri(channelUri);
 
-		if (serverName && username && displayName) {
-			tags["display-name"] = displayName = stringUtils.clean(displayName);
-			setUserCachedDisplayName(username, serverName, displayName);
+			if (channelType === constants.CHANNEL_TYPES.PRIVATE) {
+				privateMessageHighlightUser = { username, displayName };
+			}
 		}
 
 		// Store!
@@ -103,26 +114,35 @@ module.exports = function(
 		messageCaches.cacheMessage(
 			channelUri, serverName, username, symbol,
 			time, type, message, tags, relationship, highlightStrings,
-			customCols
+			privateMessageHighlightUser, messageToken, customCols
 		);
 	};
 
 	const handleIncomingMessage = function(
 		channelUri, serverName, username,
-		time, type, message, tags, meUsername
+		time, type, message, tags, meUsername, messageToken = null
 	) {
 		const symbol = userLists.getUserCurrentSymbol(channelUri, username);
 		const line = log.lineFormats[type].build(symbol, username, message);
 
 		handleIncomingMessageEvent(
 			channelUri, serverName, username, time, type, message, tags,
-			meUsername, line
+			meUsername, line, true, messageToken
 		);
 	};
 
 	const handleIncomingEvent = function(
 		channelUri, serverName, type, data, time, ircClient
 	) {
+
+		let eventVisibilitySetting = appConfig.configValue("showUserEvents");
+		let localSetting = ircConfig.channelConfigValue(channelUri, "showUserEvents");
+
+		if (typeof localSetting === "number") {
+			eventVisibilitySetting = localSetting;
+		}
+
+		eventVisibilitySetting = eventVisibilitySetting || type === "connectionEvent";
 
 		let username = data && data.username || "";
 
@@ -132,10 +152,12 @@ module.exports = function(
 
 		// Log
 
-		const line = log.getLogLineFromData(type, data);
+		if (eventVisibilitySetting) {
+			const line = log.getLogLineFromData(type, data);
 
-		if (line && appConfig.configValue("logLinesFile")) {
-			log.logChannelLine(channelUri, line, time);
+			if (line && appConfig.configValue("logLinesFile")) {
+				log.logChannelLine(channelUri, line, time);
+			}
 		}
 
 		// Channel user lists
@@ -185,6 +207,12 @@ module.exports = function(
 			}
 		}
 
+		// Event
+
+		if (!eventVisibilitySetting) {
+			return;
+		}
+
 		// Display name
 
 		const extraData = {};
@@ -208,9 +236,23 @@ module.exports = function(
 
 		messageCaches.setChannelIdCache(ircConfig.channelIdCache());
 
-		if (constants.BUNCHABLE_EVENT_TYPES.indexOf(type) >= 0) {
+		// Bunched event
+
+		if (
+			constants.BUNCHABLE_EVENT_TYPES.indexOf(type) >= 0 &&
+			(
+				eventVisibilitySetting ===
+				constants.USER_EVENT_VISIBILITY.COLLAPSE_PRESENCE ||
+				eventVisibilitySetting ===
+				constants.USER_EVENT_VISIBILITY.COLLAPSE_MESSAGES
+			)
+		) {
 			messageCaches.cacheBunchableChannelEvent(channelUri, event);
-		} else {
+		}
+
+		// Normal event
+
+		else {
 			messageCaches.cacheChannelEvent(channelUri, event);
 		}
 	};
@@ -309,7 +351,7 @@ module.exports = function(
 		}
 
 		// Propagate message to all channels in this server
-		const channelList = ircConfig.getConfigChannelsInServer(serverName);
+		const channelList = ircConfig.getConfigPublicChannelsInServer(serverName);
 		if (channelList && channelList.length) {
 			channelList.forEach((channel) => {
 				let type = "connectionEvent";
@@ -321,15 +363,28 @@ module.exports = function(
 		}
 	};
 
+	const handleIrcNickChange = function(serverName, nick) {
+		let info = { nick };
+		ircConnectionState.addToConnectionState(serverName, info);
+
+		if (io) {
+			io.emitIrcConnectionStatus(
+				serverName,
+				ircConnectionState.currentIrcConnectionState()[serverName]
+			);
+		}
+	};
+
 	const handleIncomingCustomEvent = function(
 		channelUri, serverName, username,
 		time, type, message, tags, meUsername,
-		logLine, isSeenActivity = true, customCols = null
+		logLine, isSeenActivity = true, messageToken = null,
+		customCols = null
 	) {
 		handleIncomingMessageEvent(
 			channelUri, serverName, username,
 			time, type, message, tags, meUsername,
-			logLine, isSeenActivity, customCols
+			logLine, isSeenActivity, messageToken, customCols
 		);
 	};
 
@@ -375,6 +430,7 @@ module.exports = function(
 		handleIncomingMessage,
 		handleIncomingUserList,
 		handleIrcConnectionStateChange,
+		handleIrcNickChange,
 		handleSystemLog
 	};
 };

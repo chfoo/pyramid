@@ -12,7 +12,8 @@ import ChatOfflineResendButton from "./chatline/ChatOfflineResendButton.jsx";
 import ChatUserEventLine from "./chatline/ChatUserEventLine.jsx";
 import ChatUserNoticeLinePrefix from "./chatline/ChatUserNoticeLinePrefix.jsx";
 import LogLine from "./chatline/LogLine.jsx";
-import { getChannelDisplayNameFromState } from "../lib/channelNames";
+import { USER_EVENT_VISIBILITY } from "../constants";
+import { getChannelIrcConfigFromState } from "../lib/channelNames";
 import { prepareBunchedEvents } from "../lib/chatEvents";
 import { dateStamp, timeStamp } from "../lib/formatting";
 
@@ -34,6 +35,7 @@ class ChatLine extends PureComponent {
 			message,
 			offline,
 			showTwitchClearChats,
+			showUserEvents,
 			status,
 			time,
 			type
@@ -55,6 +57,8 @@ class ChatLine extends PureComponent {
 			(isNotice ? ` ${block}--notice` : "") +
 			(type === "connectionEvent" ? ` ${block}--connection` : "") +
 			(offline ? ` ${block}--offline` : "");
+
+		const collapseJoinParts = showUserEvents === USER_EVENT_VISIBILITY.COLLAPSE_PRESENCE;
 
 		var content = null, prefix = null;
 
@@ -82,22 +86,27 @@ class ChatLine extends PureComponent {
 			case "kick":
 			case "kill":
 			case "mode":
-				content = <ChatUserEventLine
-					{...this.props}
-					key="content" />;
+				if (showUserEvents) {
+					content = <ChatUserEventLine
+						{...this.props}
+						key="content" />;
+				}
 				break;
 
 			case "events":
-				var { collapseJoinParts, ...bunchedProps } = this.props;
-				var calculated = prepareBunchedEvents(bunchedProps, collapseJoinParts);
-				if (
-					calculated &&
-					(calculated.joins.length || calculated.parts.length)
-				) {
-					content = <ChatBunchedEventsLine
-						{...this.props}
-						{...calculated}
-						key="content" />;
+				if (showUserEvents) {
+					var calculated = prepareBunchedEvents(
+						this.props, collapseJoinParts
+					);
+					if (
+						calculated &&
+						(calculated.joins.length || calculated.parts.length)
+					) {
+						content = <ChatBunchedEventsLine
+							{...this.props}
+							{...calculated}
+							key="content" />;
+					}
 				}
 				break;
 
@@ -162,18 +171,21 @@ class ChatLine extends PureComponent {
 		var outerContent;
 
 		if (content) {
-			outerContent = [
-				prefix,
-				channelEl,
-				timeStampEl,
-				" ",
-				content
-			];
+			let innerContent = [content];
+			let mainContent = (
+				<div className={`${block}__main`} key="main">
+					{ channelEl }
+					{ timeStampEl }
+					<span key="inner">{ innerContent }</span>
+				</div>
+			);
+
+			outerContent = [prefix, mainContent];
 
 			if (offline) {
 				let { messageToken } = this.props;
-				outerContent.push(" ");
-				outerContent.push(
+				innerContent.push(" ");
+				innerContent.push(
 					<ChatOfflineResendButton
 						channel={channel}
 						messageToken={messageToken}
@@ -183,9 +195,7 @@ class ChatLine extends PureComponent {
 			}
 		}
 		else {
-			outerContent = [
-				prefix
-			];
+			outerContent = prefix;
 		}
 
 		const itemProps = {
@@ -211,7 +221,6 @@ ChatLine.propTypes = {
 	channel: PropTypes.string,
 	channelDisplayName: PropTypes.string,
 	channelName: PropTypes.string,
-	collapseJoinParts: PropTypes.bool,
 	color: PropTypes.number,
 	contextMessages: PropTypes.array,
 	displayChannel: PropTypes.bool,
@@ -230,6 +239,7 @@ ChatLine.propTypes = {
 	server: PropTypes.string,
 	status: PropTypes.string,
 	showTwitchClearChats: PropTypes.bool,
+	showUserEvents: PropTypes.number,
 	symbol: PropTypes.string,
 	tags: PropTypes.object,
 	time: PropTypes.string,
@@ -239,11 +249,24 @@ ChatLine.propTypes = {
 
 const mapStateToProps = function(state, ownProps) {
 	let { channel } = ownProps;
-	let channelDisplayName = getChannelDisplayNameFromState(state, channel);
+	let c = getChannelIrcConfigFromState(state, channel);
+
+	let {
+		showTwitchClearChats,
+		showUserEvents
+	} = state.appConfig;
+
+	if (
+		c && c.channelConfig &&
+		typeof c.channelConfig.showUserEvents === "number"
+	) {
+		showUserEvents = c.channelConfig.showUserEvents;
+	}
 
 	return {
-		channelDisplayName,
-		showTwitchClearChats: state.appConfig.showTwitchClearChats
+		channelDisplayName: c && c.displayName || "",
+		showTwitchClearChats,
+		showUserEvents
 	};
 };
 

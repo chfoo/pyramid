@@ -2,15 +2,22 @@ import React, { PureComponent } from "react";
 import PropTypes from "prop-types";
 import { findDOMNode } from "react-dom";
 import remove from "lodash/remove";
+import throttle from "lodash/throttle";
 import values from "lodash/values";
 import "intersection-observer";
 
+import ChannelUserList from "./ChannelUserList.jsx";
 import ChatLines from "./ChatLines.jsx";
-import { PAGE_TYPES, PAGE_TYPE_NAMES } from "../constants";
+import { CHANNEL_TYPES, PAGE_TYPES, PAGE_TYPE_NAMES } from "../constants";
+import { parseChannelUri } from "../lib/channelNames";
+import {
+	reportConversationAsSeenIfNeeded, setConversationAsOpen, setConversationAsClosed
+} from "../lib/conversations";
 import { reportHighlightAsSeen } from "../lib/io";
+import { refElSetter } from "../lib/refEls";
 import {
 	areWeScrolledToTheBottom, scrollToTheBottom, scrollToTheTop
-} from "../lib/visualBehavior";
+} from "../lib/scrolling";
 
 const FLASHING_LINE_CLASS_NAME = "flashing";
 
@@ -21,23 +28,34 @@ class ChatFrame extends PureComponent {
 		this.lineObserverCallback = this.lineObserverCallback.bind(this);
 		this.onObserve = this.onObserve.bind(this);
 		this.onUnobserve = this.onUnobserve.bind(this);
+		this.scrollIfNeeded = this.scrollIfNeeded.bind(this);
+
+		this.handleResize = throttle(this.scrollIfNeeded, 100);
 
 		this.observerHandlers = {
 			observe: this.onObserve,
 			unobserve: this.onUnobserve
 		};
 
+		this.els = {};
+		this.setPrimaryFrameEl = refElSetter("primaryFrame").bind(this);
+
 		this.atBottom = true;
 
+		this.setUriData(props);
 		this.clearObserver();
 	}
 
 	componentDidMount() {
 		let { lines, logDate } = this.props;
 
-		if (lines && lines.length && !logDate) {
-			scrollToTheBottom();
+		if (lines && lines.length && !logDate && this.els.primaryFrame) {
+			scrollToTheBottom(this.els.primaryFrame);
 		}
+
+		this.setConversationAsOpen();
+
+		window.addEventListener("resize", this.handleResize);
 	}
 
 	componentWillReceiveProps(newProps) {
@@ -63,16 +81,19 @@ class ChatFrame extends PureComponent {
 			pageType === oldType &&
 			logDate === oldLogDate
 		) {
-			this.atBottom = areWeScrolledToTheBottom();
+			this.atBottom = areWeScrolledToTheBottom(this.els.primaryFrame);
 		}
 	}
 
 	componentDidUpdate(oldProps) {
 		const {
+			connectionStatus,
+			currentLayout,
 			inFocus,
 			lines,
 			logBrowserOpen,
 			logDate,
+			offlineMessages,
 			pageQuery,
 			pageType,
 			selectedLine,
@@ -80,10 +101,13 @@ class ChatFrame extends PureComponent {
 		} = this.props;
 
 		const {
+			connectionStatus: oldConnectionStatus,
+			currentLayout: oldLayout,
 			inFocus: oldInFocus,
 			lines: oldLines,
 			logDate: oldLogDate,
 			logBrowserOpen: oldLogBrowserOpen,
+			offlineMessages: oldOfflineMessages,
 			pageQuery: oldQuery,
 			pageType: oldType,
 			selectedLine: oldSelectedLine,
@@ -99,28 +123,38 @@ class ChatFrame extends PureComponent {
 		);
 
 		if (pageChanged) {
+			this.setConversationAsClosed(this.uriData);
+			this.setUriData();
+			this.setConversationAsOpen();
 			this.clearObserver();
 		}
 
 		// Lines changed
 
-		if (lines !== oldLines) {
+		if (lines !== oldLines || offlineMessages !== oldOfflineMessages) {
 			if (logDate) {
-				scrollToTheTop();
+				scrollToTheTop(this.els.primaryFrame);
 			}
 			else if (this.atBottom || pageChanged) {
-				scrollToTheBottom();
+				scrollToTheBottom(this.els.primaryFrame);
+			}
+
+			if (inFocus) {
+				this.reportConversationAsSeen();
 			}
 		}
 
-		// User list opened
+		// Layout changed
 
 		if (
-			userListOpen &&
-			!oldUserListOpen &&
-			this.atBottom
+			this.atBottom &&
+			(
+				(userListOpen && !oldUserListOpen) ||
+				connectionStatus !== oldConnectionStatus ||
+				currentLayout !== oldLayout
+			)
 		) {
-			scrollToTheBottom();
+			scrollToTheBottom(this.els.primaryFrame);
 		}
 
 		// Log browser opened
@@ -143,9 +177,21 @@ class ChatFrame extends PureComponent {
 		}
 	}
 
+	componentWillUnmount() {
+		this.setConversationAsClosed();
+		window.removeEventListener("resize", this.handleResize);
+	}
+
 	isLiveChannel(props = this.props) {
 		const { logDate, pageType } = props;
 		return pageType === PAGE_TYPES.CHANNEL && !logDate;
+	}
+
+	scrollIfNeeded() {
+		let { logDate } = this.props;
+		if (!logDate && this.atBottom) {
+			scrollToTheBottom(this.els.primaryFrame);
+		}
 	}
 
 	// Observers
@@ -270,6 +316,50 @@ class ChatFrame extends PureComponent {
 			this.reportElementAsSeen(el);
 		});
 		this.currentlyVisible = [];
+		this.reportConversationAsSeen();
+	}
+
+	setUriData(props = this.props) {
+		let { pageType, pageQuery } = props;
+		let uriData = null;
+
+		if (pageType === PAGE_TYPES.CHANNEL && pageQuery) {
+			uriData = parseChannelUri(pageQuery);
+		}
+
+		this.uriData = uriData;
+	}
+
+	reportConversationAsSeen() {
+		let { isLiveChannel } = this.props;
+
+		if (isLiveChannel && this.uriData) {
+			let { channel, channelType, server } = this.uriData;
+
+			if (channelType === CHANNEL_TYPES.PRIVATE) {
+				reportConversationAsSeenIfNeeded(server, channel);
+			}
+		}
+	}
+
+	setConversationAsOpen(uriData = this.uriData) {
+		if (uriData) {
+			let { channel, channelType, server } = uriData;
+
+			if (channelType === CHANNEL_TYPES.PRIVATE) {
+				setConversationAsOpen(server, channel);
+			}
+		}
+	}
+
+	setConversationAsClosed(uriData = this.uriData) {
+		if (uriData) {
+			let { channel, channelType, server } = uriData;
+
+			if (channelType === CHANNEL_TYPES.PRIVATE) {
+				setConversationAsClosed(server, channel);
+			}
+		}
 	}
 
 	// DOM
@@ -280,9 +370,10 @@ class ChatFrame extends PureComponent {
 			const lineEl = root.querySelector(`#line-${lineId}`);
 			if (lineEl) {
 				// Center the line if possible
-				window.scrollTo(0,
+				// TODO: FIX
+				/*window.scrollTo(0,
 					lineEl.offsetTop - window.innerHeight/2
-				);
+				);*/
 
 				// Flashing
 				lineEl.classList.remove(FLASHING_LINE_CLASS_NAME);
@@ -306,12 +397,13 @@ class ChatFrame extends PureComponent {
 
 	render() {
 		const {
-			collapseJoinParts,
+			isLiveChannel,
 			lines,
 			loading,
 			offlineMessages,
 			pageQuery,
-			pageType
+			pageType,
+			userListOpen
 		} = this.props;
 
 		const displayChannel = pageType !== PAGE_TYPES.CHANNEL;
@@ -319,6 +411,16 @@ class ChatFrame extends PureComponent {
 			pageType === PAGE_TYPES.CATEGORY &&
 			pageQuery === "highlights";
 		const displayUsername = pageType !== PAGE_TYPES.USER;
+		const isConversation = this.uriData &&
+			this.uriData.channelType === CHANNEL_TYPES.PRIVATE;
+
+		var userList = null;
+
+		if (isLiveChannel && !isConversation && userListOpen) {
+			userList = <ChannelUserList
+				channel={pageQuery}
+				key="userList" />;
+		}
 
 		var allLines = lines;
 
@@ -334,22 +436,46 @@ class ChatFrame extends PureComponent {
 		}
 
 		const content = <ChatLines
-			collapseJoinParts={collapseJoinParts}
 			displayChannel={displayChannel}
 			displayContextLink={displayContextLink}
 			displayUsername={displayUsername}
 			loading={loading}
 			messages={allLines}
 			observer={this.observerHandlers}
+			onEmoteLoad={this.scrollIfNeeded}
 			key="main" />;
 
-		return content;
+		return (
+			<div className="mainview__content chatview__frame">
+				<div
+					className="mainview__content__primary mainview__frame-container"
+					key="primary">
+					<div
+						className="mainview__inner-frame"
+						ref={this.setPrimaryFrameEl}>
+						{ content }
+					</div>
+				</div>
+				{ userList ? (
+					<div
+						className="chatview__frame__secondary mainview__frame-container"
+						key="secondary">
+						<div
+							className="mainview__inner-frame">
+							{ userList }
+						</div>
+					</div>
+				) : null }
+			</div>
+		);
 	}
 }
 
 ChatFrame.propTypes = {
-	collapseJoinParts: PropTypes.bool,
+	connectionStatus: PropTypes.object,
+	currentLayout: PropTypes.array,
 	inFocus: PropTypes.bool,
+	isLiveChannel: PropTypes.bool,
 	lineId: PropTypes.string,
 	lines: PropTypes.array,
 	loading: PropTypes.bool,

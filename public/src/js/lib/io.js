@@ -1,16 +1,17 @@
-import actions from "../actions";
-import store from "../store";
-import without from "lodash/without";
+import pickBy from "lodash/pickBy";
 
+import actions from "../actions";
 import { PAGE_TYPES } from "../constants";
+import store from "../store";
 import { setGlobalConnectionStatus, STATUS } from "./connectionStatus";
+import { handleNewUnseenConversationsList } from "./conversations";
 import { sendMessageNotification } from "./notifications";
 import { parseSubjectName, subjectName } from "./routeHelpers";
 
 var io;
 var socket;
 
-var currentSubscriptions = [];
+var currentSubscriptions = {};
 
 function emit(name, value) {
 	if (socket) {
@@ -18,30 +19,57 @@ function emit(name, value) {
 	}
 }
 
-function emitSubscribe(type, subject) {
-	if (socket && type && subject) {
-		emit("subscribe", { [type]: subject });
-		const subscriptionName = subjectName(type, subject);
-		currentSubscriptions = [
-			...currentSubscriptions, subscriptionName
-		];
+function emitSubscribe(type, query, force = false) {
+	if (socket && type && query) {
+		let subject = subjectName(type, query);
+		let subCount = currentSubscriptions[subject];
+
+		if (force) {
+			emit("subscribe", { [type]: query });
+			return true;
+		}
+
+		if (subCount > 0) {
+			// Ignore duplicates
+			currentSubscriptions[subject]++;
+			return false;
+		}
+
+		emit("subscribe", { [type]: query });
+		currentSubscriptions[subject] = 1;
+		return true;
 	}
+
+	return false;
 }
 
-function emitUnsubscribe(type, subject) {
-	if (socket && type && subject) {
-		emit("unsubscribe", { [type]: subject });
-		const subscriptionName = subjectName(type, subject);
-		currentSubscriptions = without(
-			currentSubscriptions, subscriptionName
-		);
+function emitUnsubscribe(type, query) {
+	if (socket && type && query) {
+		let subject = subjectName(type, query);
+		let subCount = currentSubscriptions[subject];
+
+		if (subCount > 1) {
+			// Ignore duplicates
+			currentSubscriptions[subject]--;
+			return false;
+		}
+
+		emit("unsubscribe", { [type]: query });
+		currentSubscriptions[subject] = 0;
+		return true;
 	}
+
+	return false;
+}
+
+function currentSubscriptionNames() {
+	return Object.keys(pickBy(currentSubscriptions, (n) => n > 0));
 }
 
 function emitCurrentSubscriptions() {
-	currentSubscriptions.forEach((sub) => {
+	currentSubscriptionNames().forEach((sub) => {
 		const { type, query } = parseSubjectName(sub);
-		emitSubscribe(type, query);
+		emitSubscribe(type, query, true);
 	});
 }
 
@@ -50,19 +78,25 @@ function _handleSubscription(subject, unsubscribe = false) {
 	const typeName = type === "user" ? "username" : type;
 
 	if (unsubscribe) {
-		emitUnsubscribe(typeName, query);
+		return emitUnsubscribe(typeName, query);
 	}
-	else {
-		emitSubscribe(typeName, query);
+
+	return emitSubscribe(typeName, query);
+}
+
+function removeOfflineMessage(details) {
+	let { channel, messageToken } = details;
+	if (channel && messageToken) {
+		store.dispatch(actions.offlineMessages.remove(channel, messageToken));
 	}
 }
 
 export function subscribeToSubject(subject) {
-	_handleSubscription(subject, false);
+	return _handleSubscription(subject, false);
 }
 
 export function unsubscribeFromSubject(subject) {
-	_handleSubscription(subject, true);
+	return _handleSubscription(subject, true);
 }
 
 export function sendMessage(channel, message, messageToken) {
@@ -119,6 +153,14 @@ export function requestLineInfo(lineId) {
 	emit("requestLineInfo", { lineId });
 }
 
+export function requestLineContext(lineId) {
+	emit("requestLineContext", { lineId });
+}
+
+export function requestChannelData(channel) {
+	emit("requestChannelData", { channel });
+}
+
 export function requestSystemInfo() {
 	emit("requestSystemInfo");
 }
@@ -129,6 +171,10 @@ export function requestBaseDataReload() {
 
 export function reportHighlightAsSeen(messageId) {
 	emit("reportHighlightAsSeen", { messageId });
+}
+
+export function reportConversationAsSeen(serverName, username) {
+	emit("reportConversationAsSeen", { serverName, username });
 }
 
 export function storeViewState(viewState) {
@@ -173,6 +219,10 @@ export function removeIrcChannel(serverName, name) {
 	emit("removeIrcChannel", { serverName, name });
 }
 
+export function setChannelConfigValue(serverName, channelName, key, value) {
+	emit("setChannelConfigValue", { channelName, key, serverName, value });
+}
+
 export function addNickname(nickname) {
 	emit("addNickname", { nickname });
 }
@@ -191,6 +241,10 @@ export function reconnectToIrcServer(name) {
 
 export function clearUnseenHighlights() {
 	emit("clearUnseenHighlights");
+}
+
+export function clearUnseenConversations() {
+	emit("clearUnseenConversations");
 }
 
 export function initializeIo() {
@@ -247,11 +301,14 @@ export function initializeIo() {
 		});
 
 		socket.on("channelEvent", (details) => {
+			removeOfflineMessage(details);
 			store.dispatch(actions.channelCaches.append(details));
 		});
 
 		socket.on("listEvent", (details) => {
 			let { event, listName, listType } = details;
+
+			removeOfflineMessage(details);
 
 			if (listType === PAGE_TYPES.USER) {
 				store.dispatch(actions.userCaches.append(event));
@@ -266,8 +323,7 @@ export function initializeIo() {
 		});
 
 		socket.on("messagePosted", (details) => {
-			let { channel, messageToken } = details;
-			store.dispatch(actions.offlineMessages.remove(channel, messageToken));
+			removeOfflineMessage(details);
 		});
 
 		socket.on("channelUserList", (details) => {
@@ -391,9 +447,21 @@ export function initializeIo() {
 			}
 		});
 
+		socket.on("unseenConversations", (details) => {
+			if (details && details.list) {
+				let correctedList = handleNewUnseenConversationsList(details.list);
+				store.dispatch(actions.unseenConversations.set(correctedList));
+			}
+		});
+
 		socket.on("newHighlight", (details) => {
 			if (details && details.message) {
-				// TODO: Don't alert if the window is in focus and you're viewing a source where this appears
+				sendMessageNotification(details.message);
+			}
+		});
+
+		socket.on("newPrivateMessage", (details) => {
+			if (details && details.message) {
 				sendMessageNotification(details.message);
 			}
 		});

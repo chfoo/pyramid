@@ -4,15 +4,17 @@ import { connect } from "react-redux";
 import { Link } from "react-router-dom";
 
 import ChannelList from "./ChannelList.jsx";
+import ChatViewLink from "./ChatViewLink.jsx";
 import HighlightsLink from "./HighlightsLink.jsx";
-import UserList from "./UserList.jsx";
+import SidebarUserList from "./SidebarUserList.jsx";
 import VersionNumber from "./VersionNumber.jsx";
 import actions from "../actions";
-import { CATEGORY_NAMES } from "../constants";
+import { CATEGORY_NAMES, PAGE_TYPES } from "../constants";
 import store from "../store";
+import { pluralize } from "../lib/formatting";
 import { storeViewState } from "../lib/io";
 import { refElSetter } from "../lib/refEls";
-import { categoryUrl, internalUrl, settingsUrl } from "../lib/routeHelpers";
+import { internalUrl, settingsUrl } from "../lib/routeHelpers";
 import { isMobile } from "../lib/visualBehavior";
 
 class Sidebar extends PureComponent {
@@ -104,10 +106,6 @@ class Sidebar extends PureComponent {
 		// depending on which page you're on, and your viewport
 	}
 
-	closeSystemMenu() {
-		this.setState({ systemMenuOpen: false });
-	}
-
 	// Bound state methods
 
 	hide() {
@@ -130,16 +128,27 @@ class Sidebar extends PureComponent {
 		this.setSort("activity");
 	}
 
+	closeSystemMenu() {
+		this.setState({ systemMenuOpen: false });
+	}
+
 	toggleSystemMenu() {
 		const { systemMenuOpen } = this.state;
 		this.setState({ systemMenuOpen: !systemMenuOpen });
+	}
+
+	getUnseenConversationsCount() {
+		let { unseenConversations } = this.props;
+
+		return Object.keys(unseenConversations).length;
 	}
 
 	render() {
 		const {
 			sidebarSort: sort = "alpha",
 			sidebarTab: tab = "user",
-			sidebarVisible: visible = true
+			sidebarVisible: visible = true,
+			unseenConversations
 		} = this.props;
 		const { systemMenuOpen } = this.state;
 
@@ -148,56 +157,108 @@ class Sidebar extends PureComponent {
 			" sidebar--" + sort +
 			(!visible ? " sidebar--hidden" : "");
 
+		const outerClassName = "sidebar__outer" +
+			(!visible ? " sidebar__outer--hidden" : "");
+
 		var content = null;
 
 		if (tab === "user") {
-			content = <UserList sort={sort} visible={visible} key="userlist" />;
+			content = (
+				<SidebarUserList
+					sort={sort}
+					unseenConversations={unseenConversations}
+					visible={visible}
+					key="userlist" />
+			);
 		}
 		else if (tab === "channel") {
-			content = <ChannelList sort={sort} visible={visible} key="channellist" />;
+			content = (
+				<ChannelList
+					sort={sort}
+					visible={visible}
+					key="channellist" />
+			);
 		}
 
+		const cogClassName = "menu-opener" +
+			(systemMenuOpen ? " menu-opener--active" : "");
 		const systemMenuStyles = systemMenuOpen ? { display: "block" } : null;
 
-		return (
-			<div id="sidebar" className={className} key="main" onClick={this.onClick}>
+		const systemMenu = (
+			<ul
+				className="menu pop-menu sidebar__system-menu"
+				key="system-menu"
+				style={systemMenuStyles}
+				onClick={this.onClick}>
+				<li key="settings">
+					<Link to={settingsUrl()} className="menu__link">
+						Settings
+					</Link>
+				</li>
+				<li key="log">
+					<ChatViewLink
+						type={PAGE_TYPES.CATEGORY}
+						query="system"
+						className="menu__link">
+						{ CATEGORY_NAMES.system }
+					</ChatViewLink>
+				</li>
+				<li key="logout" className="sep">
+					<a href={internalUrl("/logout")} className="menu__link">
+						Log out
+					</a>
+				</li>
+			</ul>
+		);
+
+		const unseenConversationsCount = this.getUnseenConversationsCount();
+
+		const unseenBadge = unseenConversationsCount && tab !== "user"
+			? (
+				<strong
+					className="badge"
+					title={
+						unseenConversationsCount +
+						pluralize(
+							unseenConversationsCount,
+							" unseen conversation", "s"
+						)
+				}>
+					{ unseenConversationsCount }
+				</strong>
+			)
+			: null;
+
+		const sidebar = (
+			<div id="sidebar"
+				className={className}
+				key="main"
+				onClick={this.onClick}>
 				<div className="sidebar__head" key="head">
 					<h1>Pyramid <VersionNumber /></h1>
 					<a className="sidebar__close" href="javascript://" onClick={this.hide}>
 						<img src="/img/close.svg" width="16" height="16" alt="Close" />
 					</a>
-					<a className="sidebar__cog"
+					<a className={cogClassName}
 						href="javascript://"
 						ref={this.setCog}
-						onClick={this.toggleSystemMenu}>
+						onClick={this.toggleSystemMenu}
+						title="Open system menu">
 						<img src="/img/cog.svg" width="16" height="16" alt="System" />
 					</a>
-					<ul className="sidebar__system-menu" style={systemMenuStyles}>
-						<li key="settings">
-							<Link to={settingsUrl()} className="sidebar__menu-link">
-								Settings
-							</Link>
-						</li>
-						<li key="log">
-							<Link to={categoryUrl("system")} className="sidebar__menu-link">
-								System log
-							</Link>
-						</li>
-						<li key="logout" className="sep">
-							<a href={internalUrl("/logout")} className="sidebar__menu-link">
-								Log out
-							</a>
-						</li>
-					</ul>
+
 				</div>
-				<ul className="sidebar__menu" key="menu">
+				<ul className="menu sidebar__menu" key="menu">
 					<li key="highlights">
-						<HighlightsLink className="sidebar__menu-link" />
+						<HighlightsLink className="menu__link" />
 					</li>
 					<li key="allfriends">
-						<Link to={categoryUrl("allfriends")} className="sidebar__menu-link">
+						<ChatViewLink
+							type={PAGE_TYPES.CATEGORY}
+							query="allfriends"
+							className="menu__link">
 							{ CATEGORY_NAMES.allfriends }
-						</Link>
+						</ChatViewLink>
 					</li>
 				</ul>
 				<div className="sidebar__list" key="list">
@@ -207,6 +268,7 @@ class Sidebar extends PureComponent {
 								<button className="user"
 									onClick={this.showUsers}>
 									Friends
+									{ unseenBadge }
 								</button>
 							</li>
 							<li key="channel">
@@ -237,16 +299,25 @@ class Sidebar extends PureComponent {
 				</div>
 			</div>
 		);
+
+		return (
+			<div className={outerClassName}>
+				{ sidebar }
+				{ systemMenu }
+			</div>
+		);
 	}
 }
 
 Sidebar.propTypes = {
 	sidebarSort: PropTypes.string,
 	sidebarTab: PropTypes.string,
-	sidebarVisible: PropTypes.bool
+	sidebarVisible: PropTypes.bool,
+	unseenConversations: PropTypes.object
 };
 
 export default connect(({
+	unseenConversations,
 	viewState: {
 		sidebarSort,
 		sidebarTab,
@@ -255,5 +326,6 @@ export default connect(({
 }) => ({
 	sidebarSort,
 	sidebarTab,
-	sidebarVisible
+	sidebarVisible,
+	unseenConversations
 }))(Sidebar);

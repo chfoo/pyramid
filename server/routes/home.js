@@ -9,6 +9,7 @@ module.exports = function(main) {
 		const accepted = routeUtils.denyAccessWithoutToken(req, res, main);
 		if (accepted) {
 			let appConfig = main.appConfig();
+			let awakeTime = main.awakeTime;
 			let friends = main.friends();
 			let ircConfig = main.ircConfig();
 			let ircConn = main.ircConnectionState;
@@ -16,6 +17,7 @@ module.exports = function(main) {
 			let nicknames = main.nicknames();
 			let serverData = main.serverData();
 			let unseenHighlights = main.unseenHighlights();
+			let unseenConversations = main.unseenConversations();
 			let userLists = main.userLists();
 			let viewState = main.viewState;
 
@@ -41,6 +43,7 @@ module.exports = function(main) {
 				res.render("index", {
 					// Variables
 					appConfig: currentAppConfig,
+					awakeTime: awakeTime.toISOString(),
 					friendsList: friends.currentFriendsList(),
 					ircConfig: ircConfig.safeIrcConfigDict(results.ircConfig),
 					ircConnectionState: ircConn.currentIrcConnectionState(),
@@ -50,6 +53,7 @@ module.exports = function(main) {
 					onlineFriends: userLists.currentOnlineFriends(),
 					serverData: serverData.getAllServerData(),
 					token: routeUtils.getUsedToken(req),
+					unseenConversations: unseenConversations.unseenConversations(),
 					unseenHighlights: Array.from(unseenHighlights.unseenHighlightIds()),
 					viewState: viewState.currentViewState(),
 					// Template-related

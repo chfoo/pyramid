@@ -1,40 +1,6 @@
-.channeluserlist {
-	/* TODO: Get rid of magic numbers... */
-	position: fixed;
-	top: 41px;
-	right: 0;
-	bottom: 72px;
-	width: 280px;
-	background-color: #fff;
-	overflow: auto;
-	z-index: 3;
-	margin: 0;
-
-	&:after {
-		content: "";
-		position: fixed;
-		top: 41px;
-		right: 279px;
-		bottom: 72px;
-		z-index: 11;
-		width: 1px;
-		background: rgba(0,0,51,.067);
-		z-index: 4;
-	}
-
-	.app-container--with-notice & {
-		top: 81px;
-	}
-
-	@media #{$mobile-media} {
-		bottom: 57px;
-		box-shadow: 0 0 60px 0 rgba(0,0,0,.5);
-	}
-}
-
 .chatlines {
 	list-style-type: none;
-	margin: 0;
+	margin: 10px 0;
 	padding: 0;
 
 	&__empty {
@@ -46,32 +12,71 @@
 }
 
 .chatview {
-	margin-bottom: 20px;
+	&__frame {
+		position: relative;
 
-	&--live-channel, &--logbrowsing {
-		margin-bottom: 80px;
-	}
+		&__secondary {
+			flex: 0 0 auto;
+			width: 280px;
 
-	&--logbrowsing {
-		margin-top: 80px;
+			&:after {
+				content: "";
+				position: absolute;
+				top: 0;
+				left: 0;
+				bottom: 0;
+				width: 1px;
+				background: rgba(0,0,51,.067);
+				z-index: 4;
+			}
 
-		.channeluserlist {
-			top: 68px;
+			@media #{$mobile-media} {
+				position: absolute;
+				top: 0;
+				right: 0;
+				bottom: 0;
+				box-shadow: 0 0 60px 0 rgba(0,0,0,.5);
+				z-index: 3;
+			}
 		}
-
-		.mainview__top {
-			height: auto;
-		}
-	}
-
-	&--userlisting {
-		margin-right: 280px;
 	}
 
 	.line {
 		padding: 0 20px;
 		max-height: 200px;
 		overflow-y: auto;
+
+		&__main {
+			padding: 0 0 0 63px;
+			text-indent: -63px;
+
+			time {
+				display: inline-block;
+				width: 55px;
+				padding: 0 8px 0 0;
+				text-indent: 0;
+				vertical-align: text-bottom;
+				overflow: hidden;
+				line-height: 1rem;
+			}
+
+			/*body.sf-font & {
+				// The SF font has issues with digits not being equally wide
+				// So let's use a monospace stack instead
+
+				&__main {
+					padding: 0 0 0 65px;
+					text-indent: -65px;
+				}
+
+				time {
+					font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+					font-size: 0.6875rem;
+					line-height: 1.1818em;
+					width: 57px;
+				}
+			}*/
+		}
 
 		&.flashing {
 			position: relative;
@@ -94,6 +99,7 @@
 		&__channel a,
 		time {
 			color: #999;
+			font-weight: normal;
 			white-space: nowrap;
 		}
 
@@ -123,7 +129,7 @@
 		&--connection {
 			position: relative;
 
-			> span {
+			.line__main > span {
 				position: relative;
 				background-color: #fff;
 				z-index: 2;
@@ -160,6 +166,10 @@
 			time {
 				font-style: normal;
 			}
+		}
+
+		&--twitch-action {
+			font-style: normal;
 		}
 
 		&--cleared {
@@ -292,18 +302,21 @@
 		&--highlight {
 			background-color: #fff0aa;
 		}
+
+		.chatlines {
+			margin: 0;
+		}
+	}
+
+	&__input {
+		position: relative;
 	}
 
 	&__input, &__pagination {
-		position: fixed;
-		bottom: 0;
-		left: 320px;
-		right: 0;
 		padding: 15px 20px 30px;
 		margin: 0;
 		border-top: 1px solid #ccc;
 		background-color: #fff;
-		z-index: 4;
 	}
 
 	&__input input[type="text"] {
@@ -313,6 +326,11 @@
 		box-sizing: border-box;
 		border: 1px solid #ccc;
 		padding: 3px 5px;
+
+		&:focus {
+			outline: none;
+			border-color: #29d;
+		}
 	}
 
 	&__input input[type="submit"] {
@@ -386,9 +404,12 @@
 		}
 	}
 
-	@media #{$mobile-media} {
-		margin: 50px 0 10px;
+	&__top {
+		position: relative;
+		padding-right: 40px;
+	}
 
+	@media #{$mobile-media} {
 		&--live-channel, &--logbrowsing {
 			margin-bottom: 65px;
 		}
@@ -429,16 +450,42 @@
 		.line {
 			padding: 0 10px;
 		}
+
+		.chatview__top {
+			padding-left: 10px;
+		}
+
+		&--solo, .multichat__item--top-left & {
+			.chatview__top {
+				padding-left: 40px;
+			}
+		}
 	}
 }
 
 .nochatview {
+	position: relative;
+
 	h1 {
 		font-size: 48px;
+		line-height: 1em;
 		text-align: center;
-		margin: 0;
+		margin: 0 20px;
 		padding: 100px 0;
 	}
+
+	h2 {
+		color: #999;
+		font-weight: normal;
+		text-align: center;
+		margin: -70px 20px 0;
+		padding: 0 0 100px;
+	}
+}
+
+.channeluserlist {
+	background-color: #fff;
+	margin: 0;
 }
 
 @keyframes fadeOut {
@@ -447,12 +494,6 @@
 }
 
 .chatusername {
-
-	em {
-		font-style: normal;
-		font-weight: normal;
-	}
-
 	&--color {
 		a    { color: inherit; }
 		&-0  { color: #0175e7; }
@@ -489,8 +530,31 @@
 }
 
 img.emoji {
-	height: 1.3em;
-	width: 1.3em;
+	height: 22px;
+	width: 22px;
 	margin: 0 .05em 0 .1em;
 	vertical-align: -0.1em;
+
+	&-large {
+		width: 84px;
+		height: 84px;
+	}
+}
+
+.text-emoji-large {
+	font-size: 84px;
+}
+
+.twitch-badges {
+	margin-right: 1px;
+
+	> * {
+		margin-right: 3px;
+	}
+}
+
+.twitch-cheermote {
+	img {
+		margin-right: 4px;
+	}
 }

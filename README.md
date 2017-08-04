@@ -1,7 +1,9 @@
 Pyramid
 =======
 
-**NEW! Pyramid 1.0 beta 3 is out! Woohoo!**
+**NEW! Pyramid 1.0 beta 4 is out! Woohoo!**
+
+(Below is a beta 1 screenshot that's pretty outdated, but it gives a general idea of its looks.)
 
 ![pyramid-screenshot-resized](https://cloud.githubusercontent.com/assets/80858/24841349/cd66d46e-1d82-11e7-9108-b7e4295413e0.png)
 
@@ -47,6 +49,14 @@ npm install --global --production windows-build-tools
 This command [installs build tools](https://www.npmjs.com/package/windows-build-tools) required to set up Pyramid on Windows.
 
 Other than the above command in particular, I would generally recommend using something like [Git Bash](https://git-scm.org/) to run your commands in on Windows.
+
+In order to install the dependency Sodium, which encrypts your passwords, you unfortunately need to install [Microsoft Visual Studio 2015](https://go.microsoft.com/fwlink/?LinkId=532606&clcid=0x409) and then run the following command before continuing your installation:
+
+```
+npm config set msvs_version 2015 --global
+```
+
+For more information, refer to the [Sodium documentation](https://github.com/paixaop/node-sodium/blob/master/README.md#windows-install).
 
 ## License
 [MIT License](LICENSE)

@@ -1,6 +1,6 @@
 import store from "../store";
 import actions from "../actions";
-import { parseChannelUri, serverNameFromChannelUri } from "./channelNames";
+import { getChannelUri, parseChannelUri } from "./channelNames";
 
 export function calibrateMultiServerChannels(ircConfigs) {
 	let multiServerChannels = [];
@@ -28,40 +28,26 @@ export function resetMultiServerChannels() {
 	));
 }
 
-export function isTwitch(ircConfig) {
-	if (ircConfig) {
-		return /irc\.(chat\.)?twitch\.tv/.test(ircConfig.hostname);
-	}
-
-	return false;
-}
-
 export function getChannelInfo(channel) {
-	var channelConfig = {};
-	let state = store.getState();
 	let uriData = parseChannelUri(channel);
 
 	if (uriData) {
 		let { channel: channelName, server } = uriData;
-
-		let config = state.ircConfigs[server];
-		let setting = state.appConfig.enableTwitchChannelDisplayNames;
-
-		if (setting && config) {
-			channelConfig = config.channels[channelName];
-		}
+		return getChannelInfoByNames(server, channelName);
 	}
 
-	return { channel, ...channelConfig };
+	return null;
 }
 
-export function getMyNickname(channel) {
+export function getChannelInfoByNames(serverName, channelName) {
 	let state = store.getState();
-	let serverName = serverNameFromChannelUri(channel);
+	let config = state.ircConfigs[serverName];
+	let channelConfig = config && config.channels[channelName];
 
-	if (serverName && state.ircConfigs[serverName]) {
-		return state.ircConfigs[serverName].nickname;
+	if (channelConfig) {
+		let channel = getChannelUri(serverName, channelName);
+		return { channel, ...channelConfig };
 	}
 
-	return "";
+	return null;
 }

@@ -6,6 +6,7 @@ const { queueRequest } = require("./httpRequests");
 const CLIENT_ID = "o1cax9hjz2h9yp1l6f2ph95d440cil";
 const KRAKEN_BASE_URI = "https://api.twitch.tv/kraken/";
 const CHATDEPOT_BASE_URI = "https://chatdepot.twitch.tv/";
+const BADGE_BASE_URI = "https://badges.twitch.tv/v1/badges/";
 
 const clientIdRequest = function(url, callback, extraOptions = {}) {
 	const options = _.merge(
@@ -39,6 +40,11 @@ const chatdepotGetRequest = function(commandName, password, query, callback) {
 	return queueRequest({ url, json: true }, callback);
 };
 
+const badgeGetRequest = function(commandString, callback) {
+	let url = BADGE_BASE_URI + commandString;
+	return queueRequest({ url, json: true }, callback);
+};
+
 const flattenEmoticonImagesData = function(data) {
 	if (data && data.emoticon_sets) {
 		const obj = data.emoticon_sets;
@@ -68,9 +74,42 @@ const flattenEmoticonImagesData = function(data) {
 	return null;
 };
 
+const flattenCheerData = function(data, globalCheersList = null) {
+	if (data && data.actions && data.actions.length) {
+
+		// Sort by priority
+		let list = data.actions.sort((a, b) => a.priority - b.priority);
+
+		if (globalCheersList && list.length) {
+			// Weed out those in the global list
+			globalCheersList.forEach((globalCheer) => {
+				for (var i = list.length - 1; i >= 0; i--) {
+					let cheer = list[i];
+
+					if (cheer.prefix === globalCheer.prefix) {
+						list.splice(i, 1);
+					}
+				}
+			});
+		}
+
+		// Make sure tiers in each cheer type are sorted
+		list.forEach((c) => {
+			if (c.tiers && c.tiers.length) {
+				c.tiers.sort((a, b) => a.min_bits - b.min_bits);
+			}
+		});
+
+		return list;
+	}
+
+	return [];
+};
 
 module.exports = {
+	badgeGetRequest,
 	chatdepotGetRequest,
+	flattenCheerData,
 	flattenEmoticonImagesData,
 	krakenGetRequest
 };

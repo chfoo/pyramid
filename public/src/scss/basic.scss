@@ -1,10 +1,14 @@
 body {
-	font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-	font-size: 85%;
-	line-height: 1.6em;
-	color: #000;
+	font-family: San Francisco, -apple-system, BlinkMacSystemFont, '.SFNSText-Regular', "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", Helvetica, sans-serif;
+	font-size: 81.25%;
+	line-height: 1.25rem;
+	color: #222227;
 	background-color: #fff;
 	margin: 0;
+
+	&.chrome-sf-font {
+		letter-spacing: -.0125em;
+	}
 }
 
 strong, dt {
@@ -22,10 +26,6 @@ a {
 
 	&:hover {
 		text-decoration: underline;
-	}
-
-	&.invisible {
-		font-weight: normal;
 	}
 }
 
@@ -70,4 +70,17 @@ p.ta {
 	opacity: 0;
 	pointer-events: none;
 	z-index: -1;
+}
+
+.userlink, .channelname {
+	em {
+		font-style: normal;
+		font-weight: normal;
+	}
+}
+
+.channelname {
+	a {
+		color: inherit !important;
+	}
 }

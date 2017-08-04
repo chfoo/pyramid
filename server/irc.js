@@ -61,7 +61,20 @@ module.exports = function(main) {
 	};
 
 	const getChannelUri = function(chobj) {
-		return channelUtils.getChannelUri(chobj.server, chobj.channel);
+		let { client, channel, server } = chobj;
+
+		// Public channel
+		if (
+			channel[0] === "#" ||
+			channel[0] === "$" ||
+			channel[0] === "&"
+		) {
+			// TODO: Disambiguate between IRC public channel types one day
+			return channelUtils.getChannelUri(server, channel);
+		}
+
+		// Assume private query
+		return channelUtils.getPrivateConversationUri(server, channel);
 	};
 
 	const getChannelFullName = function(chobj) {
@@ -93,25 +106,43 @@ module.exports = function(main) {
 	};
 
 	const formatChannelName = function(channelName) {
+		// TODO: Do not remove # willy nilly, because you might remove too many
 		return "#" + channelName.replace(/^#/, "");
+	};
+
+	const getIrcChannelNameFromUri = function(channelUri) {
+		let uriData = typeof channelUri === "string"
+			? channelUtils.parseChannelUri(channelUri)
+			: channelUri; // Assume given uriData
+
+		let { channel, channelType, participants, server } = uriData;
+
+		// Special handling for private channels
+		if (channelType === constants.CHANNEL_TYPES.PRIVATE) {
+			// Just return the nickname (channel) without a prefix
+			return channel;
+		}
+
+		// Return channel name with #
+		return "#" + channel;
 	};
 
 	// Send message
 
-	const sendOutgoingMessage = function(channelUri, message, isAction = false) {
+	const _sendOutgoingMessage = function(channelUri, message, messageToken) {
 		let uriData = channelUtils.parseChannelUri(channelUri);
 
 		if (uriData && uriData.server && uriData.channel) {
 			let { channel, server } = uriData;
 			let client = findClientByServerName(server);
-			let channelName = "#" + channel;
+			let channelName = getIrcChannelNameFromUri(uriData);
 
 			if (client) {
 
 				// TODO: Proper /command handling in a different layer
-				let meRegex = /^\/me\s+/;
+				let meRegex = /^\/me\s+/, isAction = false;
 
-				if (!isAction && meRegex.test(message)) {
+				if (meRegex.test(message)) {
 					isAction = true;
 					message = message.replace(meRegex, "");
 				}
@@ -134,7 +165,7 @@ module.exports = function(main) {
 					handleIncomingMessage(
 						client, client.irc.user.nick,
 						channelName, type, m, {},
-						true
+						true, messageToken
 					);
 				});
 
@@ -145,10 +176,32 @@ module.exports = function(main) {
 		return false;
 	};
 
+	const sendOutgoingMessage = function(channelUri, message, messageToken) {
+		let uriData = channelUtils.parseChannelUri(channelUri);
+		let client = uriData && findClientByServerName(uriData.server);
+		main.plugins().handleQueryEvent(
+			"sendOutgoingMessage",
+			{
+				client,
+				channel: channelUri,
+				message,
+				messageToken,
+				uriData
+			},
+			function(err) {
+				if (!err) {
+					// TODO: Allow simple changing of values
+					_sendOutgoingMessage(channelUri, message, messageToken);
+				}
+			}
+		);
+	};
+
 	// Handle incoming events
 
 	const handleIncomingMessage = function(
-		client, username, channel, type, message, tags = {}, postedLocally = false
+		client, username, channel, type, message, tags = {}, postedLocally = false,
+		messageToken = null
 	) {
 
 		// Context
@@ -169,7 +222,7 @@ module.exports = function(main) {
 
 		main.incomingEvents().handleIncomingMessage(
 			channelUri, serverName, username,
-			time, type, message, parsedTags, meUsername
+			time, type, message, parsedTags, meUsername, messageToken
 		);
 	};
 
@@ -198,11 +251,13 @@ module.exports = function(main) {
 		const chobj = channelObject(client, channel);
 		const channelUri = getChannelUri(chobj);
 		const serverName = chobj.server;
+		const meUsername = client.irc.user.nick;
 
 		main.plugins().handleEvent("customMessage", {
 			channel: channelUri,
 			client,
 			message,
+			meUsername,
 			serverName,
 			time: new Date(),
 			username
@@ -226,6 +281,11 @@ module.exports = function(main) {
 		main.incomingEvents().handleSystemLog(serverName, text, level);
 	};
 
+	const handleNickChange = function(client, nick) {
+		const serverName = clientServerName(client);
+		main.incomingEvents().handleIrcNickChange(serverName, nick);
+	};
+
 	const setChannelUserList = function(client, channel, userList) {
 		const chobj = channelObject(client, channel);
 		const serverName = clientServerName(client);
@@ -241,17 +301,29 @@ module.exports = function(main) {
 
 	const setUpClient = function(client) {
 
-		client.irc.on("registered", function() {
+		client.irc.on("registered", function(event) {
+
+			// Set connection state as online
+			client._pyramidAborted = false;
+			handleConnectionStateChange(
+				client, constants.CONNECTION_STATUS.CONNECTED
+			);
+
+			// Get the nick the server sent us
+			let { nick } = event;
+
+			if (nick) {
+				handleNickChange(client, nick);
+			}
+
+			// Auto join channels
 			let channels = convertChannelObjects(client.config.channels);
 
 			channels.forEach((channel) => {
 				client.irc.join(channel);
 			});
 
-			client._pyramidAborted = false;
-			handleConnectionStateChange(
-				client, constants.CONNECTION_STATUS.CONNECTED
-			);
+			// Fire off event
 			main.plugins().handleEvent("registered", { client });
 		});
 
@@ -307,8 +379,9 @@ module.exports = function(main) {
 
 		client.irc.on("join", (event) => {
 			let { channel, ident, hostname, nick } = event;
+			let meUsername = client.irc.user.nick;
 
-			if (nick === client.irc.user.nick) {
+			if (nick === meUsername) {
 				client.joinedChannels.push(channel);
 			}
 
@@ -318,25 +391,33 @@ module.exports = function(main) {
 			);
 
 			let channelUri = getChannelUri(channelObject(client, channel));
-			main.plugins().handleEvent(
-				"join",
-				{ client, channel: channelUri, username: nick, ident, hostname }
-			);
+			main.plugins().handleEvent("join", {
+				channel: channelUri,
+				client,
+				hostname,
+				ident,
+				meUsername,
+				username: nick
+			});
 		});
 
 		client.irc.on("part", (event) => {
 			let { channel, nick } = event;
+			let meUsername = client.irc.user.nick;
 
-			if (nick === client.irc.user.nick) {
+			if (nick === meUsername) {
 				client.joinedChannels = _.without(client.joinedChannels, channel);
 			}
 
 			handleIncomingEvent(client, channel, "part", { username: nick });
 
 			let channelUri = getChannelUri(channelObject(client, channel));
-			main.plugins().handleEvent(
-				"part", { client, channel: channelUri, username: nick }
-			);
+			main.plugins().handleEvent("part", {
+				client,
+				channel: channelUri,
+				meUsername,
+				username: nick
+			});
 		});
 
 		client.irc.on("quit", (event) => {
@@ -371,10 +452,18 @@ module.exports = function(main) {
 		});
 	};
 
-	const convertChannelObjects = (channels) => {
-		return channels.map((channel) => {
-			return "#" + channel.name;
+	const convertChannelObjects = function(channels) {
+		let publicChannels = [];
+
+		channels.forEach((channel) => {
+			let { channelType, name } = channel;
+
+			if (channelType === constants.CHANNEL_TYPES.PUBLIC) {
+				publicChannels.push("#" + name);
+			}
 		});
+
+		return publicChannels;
 	};
 
 	// Set up clients
@@ -574,6 +663,7 @@ module.exports = function(main) {
 		clients: () => clients,
 		connectUnconnectedClients,
 		disconnectServer,
+		getIrcChannelNameFromUri,
 		go,
 		joinChannel,
 		partChannel,
